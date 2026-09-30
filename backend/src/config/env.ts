@@ -1,13 +1,16 @@
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 dotenv.config();
+
+const devSecretFallback = () => crypto.randomBytes(32).toString('hex');
 
 export const ENV = {
   PORT: parseInt(process.env.PORT || '4000', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
   CLIENT_URL: process.env.CLIENT_URL || 'http://localhost:3000',
   DATABASE_URL: process.env.DATABASE_URL || 'file:./dev.db',
-  JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || 'aura_access_secret_2026',
-  JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || 'aura_refresh_secret_2026',
+  JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET || devSecretFallback(),
+  JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || devSecretFallback(),
   // AI Providers (backend-only — never sent to frontend)
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
   // Google OAuth — used for server-side token audience validation
