@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Track, RepeatMode, QualityTier, QualityPreference } from '../types/audio';
 import { SAMPLE_TRACKS } from '../audio/sampleTracks';
 import { audioEngine } from '../audio/AudioEngine';
-import { apiClient } from '../services/apiClient';
+import { apiClient, API_BASE_URL } from '../services/apiClient';
 import { useLibraryStore } from './useLibraryStore';
 import { mediaControls } from '../platform/mediaControls';
 import {
@@ -386,7 +386,7 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
 
   fetchQualityInfo: async (trackId: string) => {
     try {
-      const res = await fetch(`http://localhost:4000/api/v1/tracks/${trackId}/quality-info`);
+      const res = await fetch(`${API_BASE_URL}/tracks/${trackId}/quality-info`);
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.data) {

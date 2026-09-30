@@ -3,7 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { useAudioStore } from '../../stores/useAudioStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useLibraryStore } from '../../stores/useLibraryStore';
-import { apiClient } from '../../services/apiClient';
+import { apiClient, API_HOST } from '../../services/apiClient';
 import {
   Users,
   Radio,
@@ -104,7 +104,7 @@ export const SocialRoomView: React.FC = () => {
 
   // Connect & switch room
   useEffect(() => {
-    const socket = io('http://localhost:4000/ws', {
+    const socket = io(`${API_HOST}/ws`, {
       transports: ['websocket', 'polling'],
       timeout: 3000,
     });

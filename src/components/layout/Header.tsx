@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useUIStore } from '../../stores/useUIStore';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { apiClient } from '../../services/apiClient';
 import {
   Search,
   ChevronLeft,
@@ -24,6 +25,21 @@ export const Header: React.FC = () => {
 
   const { user, isAuthenticated, setAuthModalOpen, logout } = useAuthStore();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [isApiOnline, setIsApiOnline] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const check = async () => {
+      const ok = await apiClient.checkHealth();
+      if (mounted) setIsApiOnline(ok);
+    };
+    check();
+    const interval = setInterval(check, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
@@ -74,6 +90,23 @@ export const Header: React.FC = () => {
 
       {/* Right: Round Notifications, AI, and Audio Lab */}
       <div className="flex items-center gap-2.5">
+        {/* API Connection Indicator */}
+        <button
+          onClick={async () => {
+            const ok = await apiClient.checkHealth();
+            setIsApiOnline(ok);
+          }}
+          className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all ${
+            isApiOnline
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/15'
+              : 'bg-amber-500/10 border-amber-500/20 text-amber-300 hover:bg-amber-500/15'
+          }`}
+          title={isApiOnline ? 'Backend API connected (http://localhost:4000)' : 'Backend API offline — click to retry connection'}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${isApiOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+          <span>{isApiOnline ? 'API Connected' : 'API Offline'}</span>
+        </button>
+
         {/* Notification Bell */}
         <button
           onClick={() => setActiveView('insights')}

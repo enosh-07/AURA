@@ -11,7 +11,11 @@ import { SAMPLE_TRACKS } from '../audio/sampleTracks';
  * Set VITE_API_BASE_URL in .env or platform-specific .env files.
  */
 export const API_BASE_URL: string =
-  (import.meta as any).env?.VITE_API_BASE_URL ?? 'http://localhost:4000/api/v1';
+  (typeof window !== 'undefined' && localStorage.getItem('aura_api_base_url')) ||
+  (import.meta as any).env?.VITE_API_BASE_URL ||
+  'http://localhost:4000/api/v1';
+
+export const API_HOST: string = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
 
 export class ApiClient {
   private token: string | null = null;
@@ -75,7 +79,7 @@ export class ApiClient {
       if (json.success && Array.isArray(json.data)) {
         return json.data.map((t: any) => ({
           ...t,
-          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `http://localhost:4000${t.audioUrl}`,
+          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `${API_HOST}${t.audioUrl}`,
           artwork: t.artworkUrl || t.artwork,
         }));
       }
@@ -540,7 +544,7 @@ export class ApiClient {
         const t = json.data;
         return {
           ...t,
-          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `http://localhost:4000${t.audioUrl}`,
+          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `${API_HOST}${t.audioUrl}`,
           artwork: t.artworkUrl || t.artwork,
         };
       }
@@ -577,7 +581,7 @@ export class ApiClient {
       if (json.success && Array.isArray(json.data)) {
         return json.data.map((t: any) => ({
           ...t,
-          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `http://localhost:4000${t.audioUrl}`,
+          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `${API_HOST}${t.audioUrl}`,
           artwork: t.artworkUrl || t.artwork,
         }));
       }
@@ -598,7 +602,7 @@ export class ApiClient {
       if (json.success && Array.isArray(json.data)) {
         return json.data.map((t: any) => ({
           ...t,
-          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `http://localhost:4000${t.audioUrl}`,
+          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `${API_HOST}${t.audioUrl}`,
           artwork: t.artworkUrl || t.artwork,
         }));
       }
@@ -651,7 +655,7 @@ export class ApiClient {
         const t = json.data;
         return {
           ...t,
-          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `http://localhost:4000${t.audioUrl}`,
+          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `${API_HOST}${t.audioUrl}`,
           artwork: t.artworkUrl || t.artwork,
         };
       }
@@ -691,7 +695,7 @@ export class ApiClient {
       if (json.success && Array.isArray(json.data)) {
         return json.data.map((t: any) => ({
           ...t,
-          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `http://localhost:4000${t.audioUrl}`,
+          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `${API_HOST}${t.audioUrl}`,
           artwork: t.artworkUrl || t.artwork,
         }));
       }
@@ -720,7 +724,7 @@ export class ApiClient {
 
       const tracks: Track[] = (bundle.tracks || []).map((t: any) => ({
         ...t,
-        audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `http://localhost:4000${t.audioUrl}`,
+        audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `${API_HOST}${t.audioUrl}`,
         artwork: t.artworkUrl || t.artwork,
       }));
 
@@ -769,7 +773,7 @@ export class ApiClient {
         const art = json.data;
         const topTracks: Track[] = (art.topTracks || []).map((t: any) => ({
           ...t,
-          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `http://localhost:4000${t.audioUrl}`,
+          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `${API_HOST}${t.audioUrl}`,
           artwork: t.artworkUrl || t.artwork,
         }));
         const albums: Album[] = (art.albums || []).map((alb: any) => ({
@@ -814,7 +818,7 @@ export class ApiClient {
         const alb = json.data;
         const tracks: Track[] = (alb.tracks || []).map((t: any) => ({
           ...t,
-          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `http://localhost:4000${t.audioUrl}`,
+          audioUrl: t.audioUrl?.startsWith('http') ? t.audioUrl : `${API_HOST}${t.audioUrl}`,
           artwork: t.artworkUrl || t.artwork,
         }));
 
