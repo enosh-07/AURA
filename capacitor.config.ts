@@ -13,7 +13,7 @@ const config: CapacitorConfig = {
    * Change 'com.aura.app' to your real reverse-domain identifier
    * before publishing to Google Play / App Store.
    */
-  appId: 'com.aura.app',
+  appId: 'com.aura.player',
   appName: 'AURA',
 
   /**
