@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build Outputs
+dist/
+dist-ssr/
+*.local
+
+# Environment Variables & Secrets
+.env
+.env.*.local
+backend/.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Tauri Desktop Build Artifacts
+src-tauri/target/
+
+# Android Build Artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/local.properties
+android/.cxx/
+
+# iOS Build Artifacts
+ios/App/Pods/
+ios/App/Podfile.lock
+ios/App/build/
+ios/App/App.xcarchive
+ios/App/.symlinks/
+
+# Backend Build & Storage
+backend/dist/
+backend/storage/audio/*
+!backend/storage/audio/.gitkeep
+backend/storage/artwork/*
+!backend/storage/artwork/.gitkeep
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# Scratch & Temporary
+scratch/
+*.log

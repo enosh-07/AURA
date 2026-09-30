@@ -1,0 +1,470 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================================
+// AUTH & USER
+// ============================================================
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String?
+  googleId     String?  @unique
+  name         String
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  preferences          UserPreference?
+  playlists            Playlist[]
+  likedTracks          UserLikedTrack[]
+  history              ListeningHistory[]
+  listeningSessions    ListeningSession[]
+  devices              Device[]
+  playbackSessions     PlaybackSession[]
+  downloads            Download[]
+  eqPresets            EQPreset[]
+  visualizerPresets    VisualizerPreset[]
+  aiSessions           AISession[]
+  playlistMemberships  PlaylistCollaborator[]
+  recommendations      Recommendation[]
+  dailyMixes           DailyMix[]
+  refreshTokens        RefreshToken[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  @@index([userId])
+  @@index([token])
+}
+
+model UserPreference {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accentColor         String   @default("#00f2fe")
+  theme               String   @default("dark")
+  visualizerMode      String   @default("bars")
+  visualizerIntensity Float    @default(1.0)
+  reducedMotion       Boolean  @default(false)
+  defaultVolume       Float    @default(0.8)
+  eqBands             String   @default("[0,0,0,0,0,0,0,0,0,0]") // JSON encoded float array
+  bassBoost           Float    @default(0)
+  treble              Float    @default(0)
+  stereoPan           Float    @default(0)
+  reverbLevel         Float    @default(0)
+  eqPreset            String   @default("Flat Studio")
+  eqBypassed          Boolean  @default(false)
+  streamingQuality    String   @default("auto")  // auto | low | normal | high | lossless
+  losslessTier        String   @default("HI_RES_LOSSLESS") // AUTO | STANDARD | HIGH | LOSSLESS | HI_RES_LOSSLESS
+  bitPerfectMode      Boolean  @default(false)
+  spatialAudioEnabled Boolean  @default(false)
+  crossfadeDuration   Float    @default(0)        // seconds
+  smartTransitions    Boolean  @default(false)
+  updatedAt           DateTime @default(now()) @updatedAt
+}
+
+// ============================================================
+// TRACKS & AUDIO
+// ============================================================
+
+model Track {
+  id           String   @id @default(uuid())
+  title        String
+  artist       String
+  album        String
+  duration     Int                        // in seconds
+  genre        String
+  year         Int?
+  bpm          Int?
+  mood         String?
+  energy       Float?                     // 0.0 – 1.0
+  musicalKey   String?                    // e.g. "Am", "C#"
+  introDuration  Float?                   // seconds of intro silence/buildup
+  outroDuration  Float?                   // seconds of outro
+  accentColor  String   @default("#00f2fe")
+  artworkUrl   String
+  audioFileUrl String
+  lyricsLrc    String?
+  plainLyrics  String?
+  playCount    Int      @default(0)
+  // Spatial / immersive audio metadata
+  channelCount    Int?                    // 1=mono, 2=stereo, 6=5.1, 8=7.1
+  sampleRate      Int?                    // Hz e.g. 44100, 48000, 96000
+  bitDepth        Int?                    // e.g. 16, 24, 32
+  spatialCapable  Boolean @default(false)
+
+  // Lossless Audio System Metadata
+  codec           String?                 // FLAC, ALAC, WAV, AIFF, AAC, MP3
+  container       String?                 // FLAC, M4A, WAVE, AIFF, MPEG
+  bitrate         Int?                    // kbps
+  fileSize        Int?                    // bytes
+  sourceType      String?                 @default("USER_UPLOAD") // USER_UPLOAD | DEMO | LICENSED | OFFICIAL_API
+  qualityTier     String?                 @default("STANDARD") // STANDARD | HIGH | LOSSLESS | HI_RES_LOSSLESS
+  losslessStatus  Boolean?                @default(false)
+  isLossless      Boolean                 @default(false)
+  isGenuineLossless Boolean               @default(false)
+  validationReport String?                // JSON string of full validation analysis
+
+  createdAt    DateTime @default(now())
+
+  playlistTracks PlaylistTrack[]
+  likedBy        UserLikedTrack[]
+  history        ListeningHistory[]
+  variants       AudioVariant[]
+  downloads      Download[]
+  recommendations Recommendation[]
+}
+
+model AudioVariant {
+  id              String   @id @default(uuid())
+  trackId         String
+  track           Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  qualityTier     String                  // STANDARD | HIGH | LOSSLESS | HI_RES_LOSSLESS
+  codec           String                  // FLAC | ALAC | WAV | AIFF | AAC | MP3 | OPUS
+  container       String?                 // FLAC | M4A | WAVE | MPEG
+  bitrate         Int?                    // kbps
+  sampleRate      Int?                    // Hz
+  bitDepth        Int?                    // bits per sample
+  channels        Int?     @default(2)
+  fileSize        Int?                    // bytes
+  fileUrl         String
+  storageObjectId String?
+  isLossless      Boolean  @default(false)
+  isGenuineLossless Boolean @default(false)
+  validationNotes String?
+  mimeType        String
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@index([trackId])
+  @@index([qualityTier])
+}
+
+// ============================================================
+// PLAYLISTS
+// ============================================================
+
+model Playlist {
+  id            String   @id @default(uuid())
+  title         String
+  description   String?
+  coverUrl      String?
+  isPublic      Boolean  @default(false)
+  isAIGenerated Boolean  @default(false)
+  ownerId       String
+  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tracks        PlaylistTrack[]
+  collaborators PlaylistCollaborator[]
+  activity      PlaylistActivity[]
+}
+
+model PlaylistTrack {
+  id         String   @id @default(uuid())
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  trackId    String
+  track      Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  position   Int
+  addedById  String?
+  addedAt    DateTime @default(now())
+
+  @@unique([playlistId, trackId])
+  @@index([playlistId])
+}
+
+model PlaylistCollaborator {
+  id         String   @id @default(uuid())
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       String   @default("VIEWER")  // OWNER | EDITOR | VIEWER
+  invitedAt  DateTime @default(now())
+  acceptedAt DateTime?
+
+  @@unique([playlistId, userId])
+  @@index([playlistId])
+  @@index([userId])
+}
+
+model PlaylistActivity {
+  id         String   @id @default(uuid())
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  userId     String
+  action     String   // track_added | track_removed | reordered | renamed | collaborator_added
+  payload    String?  // JSON
+  createdAt  DateTime @default(now())
+
+  @@index([playlistId])
+}
+
+// ============================================================
+// ANALYTICS
+// ============================================================
+
+model ListeningSession {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId    String?
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  totalTracks Int      @default(0)
+  totalSeconds Int     @default(0)
+
+  events      ListeningHistory[]
+
+  @@index([userId])
+  @@index([startedAt])
+}
+
+model ListeningHistory {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackId          String
+  track            Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  sessionId        String?
+  session          ListeningSession? @relation(fields: [sessionId], references: [id])
+  deviceId         String?
+  durationListened Int                    // seconds
+  completed        Boolean  @default(false)
+  skipped          Boolean  @default(false)
+  skipPositionSec  Float?                 // where they skipped from
+  qualityTier      String?                // standard | high | lossless
+  timestamp        DateTime @default(now())
+
+  @@index([userId])
+  @@index([trackId])
+  @@index([timestamp])
+  @@index([sessionId])
+}
+
+// ============================================================
+// DEVICES & CROSS-DEVICE PLAYBACK
+// ============================================================
+
+model Device {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  platform     String                    // web | ios | android | desktop
+  browser      String?
+  userAgent    String?
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  playbackSessions PlaybackSession[]
+
+  @@index([userId])
+}
+
+model PlaybackSession {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId      String?
+  device        Device?  @relation(fields: [deviceId], references: [id])
+  currentTrackId String?
+  positionSec   Float    @default(0)
+  isPlaying     Boolean  @default(false)
+  volume        Float    @default(0.8)
+  queueJson     String?                  // JSON array of track IDs
+  playbackMode  String   @default("normal") // normal | shuffle | repeat | repeat_one
+  losslessTier  String?  @default("HI_RES_LOSSLESS")
+  bitPerfectMode Boolean @default(false)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([deviceId])
+}
+
+// ============================================================
+// DOWNLOADS
+// ============================================================
+
+model Download {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackId    String
+  track      Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  platform   String                     // web | ios | android | desktop
+  status     String   @default("pending") // pending | downloading | complete | failed | removed
+  progress   Float    @default(0)        // 0.0 – 1.0
+  qualityTier String  @default("standard")
+  localPath  String?                    // for desktop/mobile clients
+  fileSize   Int?
+  expiresAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, trackId])
+  @@index([userId])
+  @@index([trackId])
+}
+
+// ============================================================
+// EQ & VISUALIZER PRESETS
+// ============================================================
+
+model EQPreset {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  isSystem    Boolean  @default(false)  // built-in presets
+  bands       String                    // JSON: [f32 x 10]
+  bassBoost   Float    @default(0)
+  treble      Float    @default(0)
+  stereoPan   Float    @default(0)
+  reverbLevel Float    @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model VisualizerPreset {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  mode        String                    // spectrum | waveform | circular | particles | ambient | pulse | reactive
+  isSystem    Boolean  @default(false)
+  config      String?                   // JSON extra config
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ============================================================
+// AI SESSIONS
+// ============================================================
+
+model AISession {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionType String                    // dj | playlist_gen | curate
+  contextJson String?                   // serialised context for the session
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  requests    AIRequest[]
+
+  @@index([userId])
+}
+
+model AIRequest {
+  id          String    @id @default(uuid())
+  sessionId   String
+  session     AISession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  prompt      String
+  responseJson String?
+  provider    String    @default("gemini") // gemini | openai | ollama | heuristic
+  durationMs  Int?
+  createdAt   DateTime  @default(now())
+
+  @@index([sessionId])
+}
+
+// ============================================================
+// RECOMMENDATIONS & DAILY MIXES
+// ============================================================
+
+model Recommendation {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackId     String
+  track       Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  score       Float    @default(0)
+  reason      String?
+  mixType     String   @default("discover") // discover | favorites | chill | energy | focus | new
+  generatedAt DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([userId])
+  @@index([mixType])
+}
+
+model DailyMix {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mixType     String                    // discover | favorites | chill | energy | focus | new
+  title       String
+  description String?
+  coverUrl    String?
+  trackIdsJson String                   // JSON array of trackIds in ranked order
+  generatedAt DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([userId])
+  @@index([mixType])
+}
+
+// ============================================================
+// ROOMS (SOCIAL LISTENING)
+// ============================================================
+
+model Room {
+  id             String        @id @default(uuid())
+  name           String
+  hostId         String
+  currentTrackId String?
+  currentTime    Float         @default(0)
+  isPlaying      Boolean       @default(false)
+  isPrivate      Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+
+  messages       RoomMessage[]
+}
+
+model RoomMessage {
+  id        String   @id @default(uuid())
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId    String
+  userName  String
+  text      String
+  timestamp DateTime @default(now())
+
+  @@index([roomId])
+}
+
+// ============================================================
+// LIKES
+// ============================================================
+
+model UserLikedTrack {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trackId   String
+  track     Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, trackId])
+  @@index([userId])
+}

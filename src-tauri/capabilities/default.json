@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "AURA default capability set — granted to the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:default",
+    "dialog:default",
+    "notification:default",
+    "global-shortcut:default",
+    "deep-link:default",
+    "fs:default",
+    "store:default"
+  ]
+}
