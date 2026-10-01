@@ -10,11 +10,19 @@ import { SAMPLE_TRACKS } from '../audio/sampleTracks';
  *
  * Set VITE_API_BASE_URL in .env or platform-specific .env files.
  */
-export const API_BASE_URL: string =
-  (typeof window !== 'undefined' && localStorage.getItem('aura_api_base_url')) ||
-  (import.meta as any).env?.VITE_API_BASE_URL ||
-  'http://localhost:4000/api/v1';
+const getDefaultApiBaseUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('aura_api_base_url');
+    if (custom) return custom;
+    const hostname = window.location.hostname;
+    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('tauri')) {
+      return `http://${hostname}:4000/api/v1`;
+    }
+  }
+  return (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:4000/api/v1';
+};
 
+export const API_BASE_URL: string = getDefaultApiBaseUrl();
 export const API_HOST: string = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
 
 export class ApiClient {
