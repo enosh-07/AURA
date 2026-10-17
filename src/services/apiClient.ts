@@ -1,5 +1,4 @@
-import { Track, Playlist, Artist, Album } from '../types/audio';
-import { SAMPLE_TRACKS } from '../audio/sampleTracks';
+import { Track, Playlist, Artist, Album, AudioProfile } from '../types/audio';
 
 /**
  * API base URL — configure via VITE_API_BASE_URL environment variable.
@@ -91,18 +90,27 @@ export class ApiClient {
           artwork: t.artworkUrl || t.artwork,
         }));
       }
-      return SAMPLE_TRACKS;
+      return [];
     } catch {
-      // Fallback seamlessly to sample tracks
-      return SAMPLE_TRACKS;
+      return [];
     }
   }
 
-  public async getLyrics(trackId: string): Promise<any> {
+  public async getLyrics(
+    trackId: string,
+    metadata?: { title?: string; artist?: string; album?: string; duration?: number }
+  ): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE_URL}/tracks/${trackId}/lyrics`, {
+      const params = new URLSearchParams();
+      if (metadata?.title) params.append('title', metadata.title);
+      if (metadata?.artist) params.append('artist', metadata.artist);
+      if (metadata?.album) params.append('album', metadata.album);
+      if (metadata?.duration) params.append('duration', String(metadata.duration));
+
+      const queryStr = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`${API_BASE_URL}/tracks/${trackId}/lyrics${queryStr}`, {
         headers: this.getHeaders(),
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(6000),
       });
       if (!res.ok) throw new Error('Lyrics fetch failed');
       const json = await res.json();
@@ -112,16 +120,59 @@ export class ApiClient {
     }
   }
 
-  public async toggleLike(trackId: string, like: boolean): Promise<boolean> {
+  /**
+   * Requests a secure signed media URL and token for authorized playback
+   */
+  public async getStreamToken(
+    trackId: string,
+    tier: string = 'HI_RES_LOSSLESS'
+  ): Promise<{ token: string; expiresAt: number; streamUrl: string } | null> {
     try {
-      const res = await fetch(`${API_BASE_URL}/tracks/${trackId}/like`, {
-        method: like ? 'POST' : 'DELETE',
+      const res = await fetch(`${API_BASE_URL}/tracks/${trackId}/stream-token?tier=${tier}`, {
         headers: this.getHeaders(),
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(3000),
       });
-      return res.ok;
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.success ? json.data : null;
     } catch {
-      return false;
+      return null;
+    }
+  }
+
+  /**
+   * Retrieves the comprehensive Audio Intelligence Profile for a track
+   * (BPM, Camelot Key, Integrated LUFS, Dynamic Range, Spectral features, Fingerprint)
+   */
+  public async getAudioProfile(trackId: string): Promise<AudioProfile | null> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/tracks/${trackId}/audio-profile`, {
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.success ? json.data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Triggers the Audio Intelligence Pipeline on-demand for a track
+   */
+  public async analyzeTrack(trackId: string): Promise<AudioProfile | null> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/tracks/${trackId}/analyze`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.success ? json.data : null;
+    } catch {
+      return null;
     }
   }
 
@@ -197,12 +248,12 @@ export class ApiClient {
     }
   }
 
-  public async addTrackToPlaylist(playlistId: string, trackId: string): Promise<boolean> {
+  public async addTrackToPlaylist(playlistId: string, trackId: string, trackMeta?: any): Promise<boolean> {
     try {
       const res = await fetch(`${API_BASE_URL}/playlists/${playlistId}/tracks`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ trackId }),
+        body: JSON.stringify({ trackId, ...trackMeta }),
       });
       return res.ok;
     } catch {
@@ -215,6 +266,35 @@ export class ApiClient {
       const res = await fetch(`${API_BASE_URL}/playlists/${playlistId}/tracks/${trackId}`, {
         method: 'DELETE',
         headers: this.getHeaders(),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // Liked Tracks
+  public async getLikedTrackIds(): Promise<string[]> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/tracks/me/likes`, {
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.success && Array.isArray(json.data) ? json.data : [];
+    } catch {
+      return [];
+    }
+  }
+
+  public async toggleLike(trackId: string, like: boolean, trackMeta?: any): Promise<boolean> {
+    try {
+      const url = `${API_BASE_URL}/tracks/${trackId}/like`;
+      const res = await fetch(url, {
+        method: like ? 'POST' : 'DELETE',
+        headers: this.getHeaders(),
+        body: like && trackMeta ? JSON.stringify(trackMeta) : undefined,
       });
       return res.ok;
     } catch {
@@ -318,21 +398,6 @@ export class ApiClient {
     }
     this.setToken(json.data.accessToken);
     return json.data;
-  }
-
-  public async getLikedTrackIds(): Promise<string[]> {
-    if (!this.token) return [];
-    try {
-      const res = await fetch(`${API_BASE_URL}/tracks/me/likes`, {
-        headers: this.getHeaders(),
-        signal: AbortSignal.timeout(3000),
-      });
-      if (!res.ok) return [];
-      const json = await res.json();
-      return json.success && Array.isArray(json.data) ? json.data : [];
-    } catch {
-      return [];
-    }
   }
 
   public async getPlaybackState(): Promise<any> {
@@ -563,7 +628,6 @@ export class ApiClient {
     }
   }
 
-  // Recommendations & Daily Mixes
   public async getDailyMixes(regenerate = false): Promise<any[]> {
     try {
       const res = await fetch(`${API_BASE_URL}/recommendations/daily?regenerate=${regenerate}`, {
@@ -848,6 +912,106 @@ export class ApiClient {
       return null;
     }
   }
+
+  public async getPersonalizedHome(): Promise<PersonalizedHomeData | null> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/recommendations/home`, {
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      if (json.success && json.data) {
+        const normalize = (tracks: Track[] = []) =>
+          tracks.map((t: any) => ({
+            ...t,
+            audioUrl: t.audioUrl?.startsWith('http') || t.audioUrl?.startsWith('blob:')
+              ? t.audioUrl
+              : `${API_HOST}${t.audioUrl}`,
+            artwork: t.artworkUrl || t.artwork,
+          }));
+
+        return {
+          ...json.data,
+          hasHistory: json.data.hasHistory !== undefined ? json.data.hasHistory : !json.data.isNewUser,
+          isNewUser: json.data.isNewUser !== undefined ? json.data.isNewUser : !json.data.hasHistory,
+          madeForYou: normalize(json.data.madeForYou),
+          recentlyPlayed: normalize(json.data.recentlyPlayed),
+          discoverNew: normalize(json.data.discoverNew),
+          favoriteSounds: normalize(json.data.favoriteSounds),
+          trending: normalize(json.data.trending),
+          catalogStarter: normalize(json.data.catalogStarter),
+          becauseYouListenedTo: json.data.becauseYouListenedTo
+            ? {
+                ...json.data.becauseYouListenedTo,
+                seedTrack: {
+                  ...json.data.becauseYouListenedTo.seedTrack,
+                  artwork:
+                    json.data.becauseYouListenedTo.seedTrack.artworkUrl ||
+                    json.data.becauseYouListenedTo.seedTrack.artwork,
+                },
+                tracks: normalize(json.data.becauseYouListenedTo.tracks),
+              }
+            : null,
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  public async getRecentlyPlayed(limit = 20): Promise<Track[]> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/analytics/recent?limit=${limit}`, {
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!res.ok) return [];
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        return json.data.map((t: any) => ({
+          ...t,
+          audioUrl: t.audioUrl?.startsWith('http') || t.audioUrl?.startsWith('blob:')
+            ? t.audioUrl
+            : `${API_HOST}${t.audioUrl}`,
+          artwork: t.artworkUrl || t.artwork,
+        }));
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+export interface DailyMix {
+  id: string;
+  title: string;
+  subtitle: string;
+  artwork: string;
+  query: string;
+  tracks?: Track[];
+}
+
+export interface PersonalizedHomeData {
+  hasHistory: boolean;
+  isNewUser?: boolean;
+  topArtists: string[];
+  topGenres: string[];
+  madeForYou: Track[];
+  recentlyPlayed: Track[];
+  dailyMixes: DailyMix[];
+  becauseYouListenedTo: {
+    seedTrack: Track;
+    reason: string;
+    tracks: Track[];
+  } | null;
+  discoverNew: Track[];
+  favoriteSounds: Track[];
+  trending: Track[];
+  curatedMixes: DailyMix[];
+  catalogStarter: Track[];
 }
 
 export const apiClient = new ApiClient();

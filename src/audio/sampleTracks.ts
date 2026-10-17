@@ -146,7 +146,7 @@ export const SAMPLE_TRACKS: Track[] = [
     accentColor: '#10b981',
     mood: 'Travel',
     bpm: 108,
-    artwork: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&auto=format&fit=crop&q=80',
+    artwork: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80',
     audioUrl: 'https://cdn.pixabay.com/download/audio/2022/03/10/audio_c230e17d04.mp3?filename=relaxed-vlog-131746.mp3',
     lyrics: [
       { time: 0, text: '[Breeze, Windchimes & Shimmering Pads]' },

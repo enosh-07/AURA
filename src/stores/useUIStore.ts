@@ -23,6 +23,8 @@ interface UIStoreState {
 
   // Modals / Overlays
   isFullscreenPlayerOpen: boolean;
+  playerPresentationMode: 'full' | 'mini';
+  fullPlayerTab: 'artwork' | 'live-lyrics';
   isAudioLabOpen: boolean;
   isLyricsOpen: boolean;
   isAICompanionOpen: boolean;
@@ -49,6 +51,8 @@ interface UIStoreState {
   setSearchQuery: (q: string) => void;
   setSelectedMood: (mood: string | null) => void;
   setFullscreenPlayerOpen: (open: boolean) => void;
+  setPlayerPresentationMode: (mode: 'full' | 'mini') => void;
+  setFullPlayerTab: (tab: 'artwork' | 'live-lyrics') => void;
   setAudioLabOpen: (open: boolean) => void;
   setLyricsOpen: (open: boolean) => void;
   setAICompanionOpen: (open: boolean) => void;
@@ -74,6 +78,8 @@ export const useUIStore = create<UIStoreState>((set) => ({
   selectedMood: null,
 
   isFullscreenPlayerOpen: false,
+  playerPresentationMode: 'mini',
+  fullPlayerTab: 'artwork',
   isAudioLabOpen: false,
   isLyricsOpen: false,
   isAICompanionOpen: false,
@@ -114,9 +120,29 @@ export const useUIStore = create<UIStoreState>((set) => ({
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setSelectedMood: (selectedMood) => set({ selectedMood }),
 
-  setFullscreenPlayerOpen: (isFullscreenPlayerOpen) => set({ isFullscreenPlayerOpen }),
+  setFullscreenPlayerOpen: (isFullscreenPlayerOpen) =>
+    set({
+      isFullscreenPlayerOpen,
+      playerPresentationMode: isFullscreenPlayerOpen ? 'full' : 'mini',
+    }),
+  setPlayerPresentationMode: (mode) =>
+    set({
+      playerPresentationMode: mode,
+      isFullscreenPlayerOpen: mode === 'full',
+    }),
+  setFullPlayerTab: (fullPlayerTab) => set({ fullPlayerTab }),
   setAudioLabOpen: (isAudioLabOpen) => set({ isAudioLabOpen }),
-  setLyricsOpen: (isLyricsOpen) => set({ isLyricsOpen }),
+  setLyricsOpen: (isLyricsOpen) => {
+    if (isLyricsOpen) {
+      set({
+        fullPlayerTab: 'live-lyrics',
+        isFullscreenPlayerOpen: true,
+        playerPresentationMode: 'full',
+      });
+    } else {
+      set({ isLyricsOpen: false });
+    }
+  },
   setAICompanionOpen: (isAICompanionOpen) => set({ isAICompanionOpen }),
   setSleepTimerOpen: (isSleepTimerOpen) => set({ isSleepTimerOpen }),
   setCommandPaletteOpen: (isCommandPaletteOpen) => set({ isCommandPaletteOpen }),

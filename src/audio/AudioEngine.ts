@@ -23,13 +23,32 @@ export class AudioEngine {
   public onQualityHeadersDetected?: (headers: Record<string, string>) => void;
 
   // Cached data arrays for visualizer (reused to prevent GC pressure)
-  private frequencyData: Uint8Array | null = null;
-  private waveformData: Uint8Array | null = null;
+  private frequencyData: Uint8Array<ArrayBuffer> | null = null;
+  private waveformData: Uint8Array<ArrayBuffer> | null = null;
+
+  // Production Streaming & Network Resilience
+  private retryCount = 0;
+  private readonly maxRetries = 3;
+  private lastSavedPosition = 0;
+  private currentTrackRef: Track | null = null;
+  private currentSignedUrl: string | null = null;
 
   private constructor() {
     this.audio = new Audio();
     this.audio.crossOrigin = 'anonymous';
     this.audio.preload = 'auto';
+
+    // Track playback position continuously for seamless network recovery
+    this.audio.addEventListener('timeupdate', () => {
+      if (this.audio.currentTime > 0) {
+        this.lastSavedPosition = this.audio.currentTime;
+      }
+    });
+
+    // Listen for network dropouts
+    this.audio.addEventListener('error', () => {
+      this.handleNetworkFailure();
+    });
   }
 
   public static getInstance(): AudioEngine {
@@ -130,7 +149,67 @@ export class AudioEngine {
     }
   }
 
-  public playTrack(track: Track): Promise<void> {
+  /**
+   * Evaluates client network conditions to recommend optimal streaming quality tier
+   */
+  public getOptimalQualityForNetwork(): 'STANDARD' | 'HIGH' | 'LOSSLESS' | 'HI_RES_LOSSLESS' {
+    if (typeof navigator !== 'undefined' && 'connection' in navigator) {
+      const conn = (navigator as any).connection;
+      if (conn?.saveData) return 'STANDARD';
+      const effectiveType = conn?.effectiveType;
+      const downlink = conn?.downlink; // Mbps
+      if (effectiveType === 'slow-2g' || effectiveType === '2g') return 'STANDARD';
+      if (effectiveType === '3g' || (typeof downlink === 'number' && downlink < 2)) return 'HIGH';
+      if (typeof downlink === 'number' && downlink >= 6) return 'HI_RES_LOSSLESS';
+      return 'LOSSLESS';
+    }
+    return 'HI_RES_LOSSLESS';
+  }
+
+  /**
+   * Recovers from network interruptions by reconnecting and resuming from exact timestamp
+   */
+  private handleNetworkFailure(): void {
+    if (!this.currentTrackRef) return;
+
+    if (this.retryCount < this.maxRetries) {
+      this.retryCount++;
+      const delayMs = Math.min(800 * Math.pow(2, this.retryCount - 1), 3500);
+      console.warn(
+        `[AudioEngine] Network interrupted. Resuming in ${delayMs}ms (attempt ${this.retryCount}/${this.maxRetries})...`
+      );
+
+      setTimeout(() => {
+        if (!this.currentTrackRef) return;
+        const resumeSec = this.lastSavedPosition;
+        this.playTrack(this.currentTrackRef, {
+          resumeTime: resumeSec,
+          isRetry: true,
+          signedUrl: this.currentSignedUrl ?? undefined,
+        });
+      }, delayMs);
+    } else {
+      console.warn('[AudioEngine] Stream recovery attempts exhausted.');
+      this.stopSynthesizer();
+    }
+  }
+
+  public playTrack(
+    track: Track,
+    options?: {
+      resumeTime?: number;
+      isRetry?: boolean;
+      signedUrl?: string;
+      qualityTier?: string;
+    }
+  ): Promise<void> {
+    if (!options?.isRetry) {
+      this.retryCount = 0;
+      this.lastSavedPosition = options?.resumeTime ?? 0;
+    }
+    this.currentTrackRef = track;
+    this.currentSignedUrl = options?.signedUrl ?? null;
+
     this.stopSynthesizer();
     this.initAudioContext();
 
@@ -141,16 +220,19 @@ export class AudioEngine {
     if (track.fileBlob) {
       this.audio.src = URL.createObjectURL(track.fileBlob);
     } else {
+      const rawUrl = options?.signedUrl || track.audioUrl;
       let srcUrl =
-        track.audioUrl.startsWith('http') || track.audioUrl.startsWith('blob:')
-          ? track.audioUrl
-          : `${API_HOST}${track.audioUrl}`;
+        rawUrl.startsWith('http') || rawUrl.startsWith('blob:')
+          ? rawUrl
+          : `${API_HOST}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
 
-      // Append quality tier preference
+      // Determine quality tier (Network-aware if AUTO)
+      const tier = options?.qualityTier || 'HI_RES_LOSSLESS';
       if (!srcUrl.includes('tier=') && !srcUrl.includes('quality=')) {
         const delimiter = srcUrl.includes('?') ? '&' : '?';
-        srcUrl = `${srcUrl}${delimiter}tier=HI_RES_LOSSLESS`;
+        srcUrl = `${srcUrl}${delimiter}tier=${tier}`;
       }
+
       this.audio.src = srcUrl;
 
       // Probe stream headers to obtain exact server delivery format
@@ -170,11 +252,22 @@ export class AudioEngine {
 
     this.audio.load();
 
+    // Resume position if recovering from network pause or quality change
+    if (options?.resumeTime && options.resumeTime > 0) {
+      const targetTime = options.resumeTime;
+      const setTime = () => {
+        try {
+          this.audio.currentTime = targetTime;
+        } catch {}
+      };
+      this.audio.addEventListener('loadedmetadata', setTime, { once: true });
+      setTime();
+    }
+
     const playPromise = this.audio.play();
     if (playPromise !== undefined) {
       return playPromise.catch((err) => {
-        console.warn('Playback error or network issue. Starting fallback procedural ambient synthesizer:', err);
-        this.startFallbackSynthesizer(track);
+        console.warn('[AudioEngine] Playback error on audio element:', err);
       });
     }
     return Promise.resolve();
@@ -196,8 +289,59 @@ export class AudioEngine {
     return this.isBitPerfect;
   }
 
+  public getOutputDeviceSampleRate(): number {
+    return this.ctx?.sampleRate || 48000;
+  }
+
   public getLastStreamHeaders(): Record<string, string> {
     return this.lastStreamHeaders;
+  }
+
+  public getMaxOutputChannels(): number {
+    return this.ctx?.destination?.maxChannelCount || 2;
+  }
+
+  /**
+   * Evaluates client browser & platform hardware capabilities for genuine Dolby Atmos playback.
+   * Accurately reflects decoder support and separates native Atmos from virtual spatial effects.
+   */
+  public checkAtmosSupport(): { isSupported: boolean; reason: string; platform: string; isDiscretePassthrough: boolean } {
+    if (typeof window === 'undefined') {
+      return { isSupported: false, reason: 'Non-browser execution environment.', platform: 'Server', isDiscretePassthrough: false };
+    }
+
+    const userAgent = navigator.userAgent;
+    const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+    const isApple = /(Macintosh|iPhone|iPad|iPod)/i.test(userAgent);
+
+    const testAudio = this.audio || new Audio();
+    const canPlayEc3 = testAudio.canPlayType('audio/mp4; codecs="ec-3"');
+
+    if (isSafari && isApple && (canPlayEc3 === 'probably' || canPlayEc3 === 'maybe')) {
+      return {
+        isSupported: true,
+        reason: 'Apple AVFoundation Native E-AC-3 JOC decoder detected with Spatial Audio pass-through.',
+        platform: 'Apple CoreAudio (Native Safari)',
+        isDiscretePassthrough: true,
+      };
+    }
+
+    if (canPlayEc3 === 'probably' || canPlayEc3 === 'maybe') {
+      return {
+        isSupported: true,
+        reason: 'Host browser reports E-AC-3 codec support. Discrete multi-channel pass-through possible.',
+        platform: 'Dolby Audio Compatible Browser',
+        isDiscretePassthrough: true,
+      };
+    }
+
+    return {
+      isSupported: false,
+      reason:
+        'Browser Web Audio stack does not decode Dolby Atmos (E-AC-3 JOC) object metadata. Native playback requires a certified Dolby decoder (e.g. Safari on Apple Hardware, Dolby Access, or HDMI AVR Bitstream). AURA virtual spatial sound operates as a binaural simulation.',
+      platform: navigator.platform || 'Standard Web Browser',
+      isDiscretePassthrough: false,
+    };
   }
 
   public getDSPStatus(): { isProcessing: boolean; eq: boolean; spatial: boolean; normalization: boolean } {
@@ -321,7 +465,7 @@ export class AudioEngine {
   /**
    * Returns frequency domain data for audio visualizer
    */
-  public getFrequencyData(): Uint8Array | null {
+  public getFrequencyData(): Uint8Array<ArrayBuffer> | null {
     if (this.analyserNode && this.frequencyData) {
       this.analyserNode.getByteFrequencyData(this.frequencyData);
       return this.frequencyData;
@@ -332,7 +476,7 @@ export class AudioEngine {
   /**
    * Returns time domain waveform data for audio visualizer
    */
-  public getWaveformData(): Uint8Array | null {
+  public getWaveformData(): Uint8Array<ArrayBuffer> | null {
     if (this.analyserNode && this.waveformData) {
       this.analyserNode.getByteTimeDomainData(this.waveformData);
       return this.waveformData;

@@ -17,7 +17,12 @@ import {
   getOnlineAlbum,
   streamOnlineTrack,
   getQualityInfo,
+  getQualityReport,
+  findLosslessAlternative,
   getLikedTrackIds,
+  getStreamToken,
+  getAudioProfile,
+  analyzeTrack,
 } from '../controllers/track.controller.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.middleware.js';
 
@@ -63,8 +68,13 @@ router.get('/', optionalAuth, getTracks);
 router.get('/me/likes', requireAuth, getLikedTrackIds);
 router.post('/upload', optionalAuth, upload.single('audio'), uploadTrack);
 router.get('/:id', optionalAuth, getTrackById);
+router.get('/:id/stream-token', optionalAuth, getStreamToken);
 router.get('/:id/stream', streamTrack);
 router.get('/:id/quality-info', getQualityInfo);
+router.get('/:id/quality-report', getQualityReport);
+router.get('/:id/lossless-alternative', findLosslessAlternative);
+router.get('/:id/audio-profile', optionalAuth, getAudioProfile);
+router.post('/:id/analyze', optionalAuth, analyzeTrack);
 router.get('/:id/lyrics', getLyrics);
 router.post('/:id/like', requireAuth, likeTrack);
 router.delete('/:id/like', requireAuth, unlikeTrack);

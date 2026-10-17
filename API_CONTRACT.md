@@ -190,19 +190,54 @@ Fetches a paginated catalog of available tracks with support for fuzzy search, g
 Returns single track details.
 * **Auth:** Public / Optional Bearer (to return `isLiked` status for user)
 
+#### `GET /api/v1/tracks/:id/stream-token`
+Generates a cryptographically signed stream authorization token and direct signed stream URL with strict expiration and tier metadata.
+* **Auth:** Public / Optional Bearer
+* **Query Parameters:**
+  | Name | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `tier` | string | No | Desired quality: `STANDARD`, `HIGH`, `LOSSLESS`, `HI_RES_LOSSLESS` |
+* **Response (200 OK):**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "token": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855.1727885000",
+      "expiresAt": 1727885000,
+      "streamUrl": "/api/v1/tracks/track-1/stream?tier=HI_RES_LOSSLESS&token=...&expires=1727885000"
+    }
+  }
+  ```
+
 #### `GET /api/v1/tracks/:id/stream`
-Streams the binary audio file supporting HTTP 206 Partial Content range requests for seamless timeline scrubbing and zero latency.
-* **Auth:** Public
+Streams the binary audio file supporting HTTP 206 Partial Content range requests for seamless timeline scrubbing, concurrent session control, and zero latency.
+* **Auth:** Public / Signed Token / Bearer
+* **Query Parameters:**
+  | Name | Type | Required | Description |
+  | :--- | :--- | :--- | :--- |
+  | `tier` | string | No | Streaming quality tier requested |
+  | `token` | string | No | HMAC-SHA256 signed security token |
+  | `expires`| number | No | Token expiration timestamp (unix epoch seconds) |
 * **Request Headers:**
   ```http
   Range: bytes=0-1048576
+  If-Range: "flac-track-1-hi-res-v1"
   ```
 * **Response Headers (206 Partial Content):**
   ```http
-  Content-Type: audio/mpeg
-  Content-Range: bytes 0-1048576/4194304
-  Content-Length: 1048577
   Accept-Ranges: bytes
+  Content-Type: audio/flac
+  Content-Range: bytes 0-1048576/38841920
+  Content-Length: 1048577
+  ETag: "flac-track-1-hi-res-v1"
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+  X-Audio-Codec: FLAC
+  X-Audio-Quality-Tier: HI_RES_LOSSLESS
+  X-Audio-Bit-Depth: 24
+  X-Audio-Sample-Rate: 96000
+  X-Audio-Channels: 2
+  X-Audio-Bitrate: 2840
+  X-Audio-Lossless: true
   ```
 
 #### `POST /api/v1/tracks/:id/like`
@@ -224,6 +259,61 @@ Removes track from user's Liked Songs collection.
   {
     "success": true,
     "data": { "trackId": "track-1", "isLiked": false }
+  }
+  ```
+
+#### `GET /api/v1/tracks/:id/audio-profile`
+Retrieves the comprehensive Audio Intelligence Profile for a track containing musical tempo, Camelot harmonic key, EBU R128 loudness metrics, spectral features, and acoustic fingerprint.
+* **Auth:** Public / Optional Bearer
+* **Response (200 OK):**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "trackId": "track-1",
+      "bpm": 124.0,
+      "bpmConfidence": 0.92,
+      "danceability": 0.78,
+      "musicalKey": "Am",
+      "keyConfidence": 0.88,
+      "camelotKey": "8A",
+      "scale": "minor",
+      "integratedLoudness": -14.2,
+      "loudnessRange": 6.4,
+      "truePeak": -0.85,
+      "dynamicRange": 13.35,
+      "energy": 0.82,
+      "valence": 0.65,
+      "acousticness": 0.08,
+      "instrumentalness": 0.72,
+      "speechRatio": 0.03,
+      "spectralCentroid": 2840,
+      "spectralRolloff": 6450,
+      "spectralFlatness": 0.24,
+      "spectralSpread": 1920,
+      "spectralFeatures": "{\"subBass\":0.14,\"bass\":0.28,\"lowMid\":0.21,\"mid\":0.18,\"highMid\":0.11,\"presence\":0.05,\"brilliance\":0.03}",
+      "primaryMood": "Energy",
+      "secondaryMood": "Euphoric",
+      "detectedGenre": "Synthwave",
+      "genreConfidence": 0.9,
+      "fingerprint": "a9f8e42b109c3d4a...",
+      "durationMs": 194000,
+      "analyzerVersion": "1.0.0-auradsp",
+      "analysisSource": "NATIVE_DSP",
+      "isComplete": true
+    }
+  }
+  ```
+
+#### `POST /api/v1/tracks/:id/analyze`
+Triggers the multi-stage Audio Intelligence Pipeline on-demand to extract DSP acoustic features, loudness, tempo, and fingerprint from the underlying audio file.
+* **Auth:** Optional Bearer
+* **Response (200 OK):**
+  ```json
+  {
+    "success": true,
+    "data": { ... },
+    "message": "Audio intelligence pipeline analysis completed"
   }
   ```
 

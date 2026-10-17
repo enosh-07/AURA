@@ -33,10 +33,12 @@ export class AnalyticsService {
     });
 
     if (!data.skipped) {
-      await prisma.track.update({
-        where: { id: data.trackId },
-        data: { playCount: { increment: 1 } },
-      });
+      await prisma.track
+        .update({
+          where: { id: data.trackId },
+          data: { playCount: { increment: 1 } },
+        })
+        .catch(() => {}); // Safe for online tracks not in local DB
     }
 
     return record;
@@ -51,6 +53,45 @@ export class AnalyticsService {
       skipPositionSec: data.positionSec,
       sessionId: data.sessionId,
     });
+  }
+
+  /**
+   * Genuine recently played tracks for the authenticated user
+   * Filters accidental starts (< 5 seconds) and deduplicates consecutive plays
+   */
+  async getRecentlyPlayed(userId: string, limit = 20) {
+    const history = await prisma.listeningHistory.findMany({
+      where: {
+        userId,
+        durationListened: { gte: 5 },
+      },
+      orderBy: { timestamp: 'desc' },
+      include: {
+        track: {
+          include: { variants: true },
+        },
+      },
+      take: limit * 3,
+    });
+
+    const seen = new Set<string>();
+    const recent: any[] = [];
+
+    for (const h of history) {
+      if (!seen.has(h.trackId) && h.track) {
+        seen.add(h.trackId);
+        recent.push({
+          ...h.track,
+          lastPlayedAt: h.timestamp,
+          durationListened: h.durationListened,
+          completed: h.completed,
+          audioUrl: `/api/v1/tracks/${h.track.id}/stream`,
+        });
+        if (recent.length >= limit) break;
+      }
+    }
+
+    return recent;
   }
 
   // ============================================================

@@ -61,6 +61,24 @@ export class StorageService {
     return storageProvider.getSignedUrl(bucket, key, expiresInSeconds);
   }
 
+  async getPresignedUploadTicket(
+    bucket: StorageBucket,
+    originalName: string,
+    mimeType: string,
+    expiresInSeconds = 900
+  ) {
+    if (bucket === 'audio' && !ALLOWED_AUDIO_MIME.has(mimeType)) {
+      throw new Error(`Unsupported audio format: ${mimeType}`);
+    }
+    if (bucket === 'artwork' && !ALLOWED_IMAGE_MIME.has(mimeType)) {
+      throw new Error(`Unsupported image format: ${mimeType}`);
+    }
+
+    const ext = this.getExtFromMime(mimeType) || path.extname(originalName) || (bucket === 'audio' ? '.mp3' : '.jpg');
+    const key = `${crypto.randomUUID()}${ext}`;
+    return storageProvider.getPresignedUploadUrl(bucket, key, mimeType, expiresInSeconds);
+  }
+
   async deleteFile(bucket: StorageBucket, key: string) {
     return storageProvider.delete(bucket, key);
   }
@@ -68,6 +86,7 @@ export class StorageService {
   getPublicUrl(bucket: StorageBucket, key: string) {
     return storageProvider.getPublicUrl(bucket, key);
   }
+
 
   private getExtFromMime(mime: string): string {
     const map: Record<string, string> = {

@@ -3,6 +3,7 @@ import { useAudioStore } from '../../stores/useAudioStore';
 import { useLibraryStore } from '../../stores/useLibraryStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { VolumeControl } from './VolumeControl';
+import { TrackArtwork } from '../common/TrackArtwork';
 import {
   Play,
   Pause,
@@ -112,7 +113,7 @@ export const MiniPlayer: React.FC = () => {
       <div className="max-w-[1700px] mx-auto flex items-center justify-between gap-3 sm:gap-6">
         
         {/* Left: Track Information */}
-        <div className="flex items-center gap-3 min-w-0 flex-1 md:flex-initial md:w-[280px] shrink-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1 md:flex-1 md:max-w-[360px] shrink-0">
           <div
             onClick={(e) => {
               e.stopPropagation();
@@ -120,9 +121,11 @@ export const MiniPlayer: React.FC = () => {
             }}
             className="relative w-11 h-11 sm:w-12 sm:h-12 rounded-xl sm:rounded-lg overflow-hidden cursor-pointer group shrink-0 bg-[#161514] border border-white/10 shadow-md"
           >
-            <img
-              src={currentTrack.artwork}
-              alt={currentTrack.title}
+            <TrackArtwork
+              artworkUrl={currentTrack.artwork}
+              title={currentTrack.title}
+              artist={currentTrack.artist}
+              accentColor={currentTrack.accentColor}
               className={`w-full h-full object-cover transition-transform duration-500 ${
                 isPlaying ? 'scale-105' : 'group-hover:scale-105'
               }`}
@@ -194,8 +197,8 @@ export const MiniPlayer: React.FC = () => {
           </div>
         </div>
 
-        {/* Center: Playback Controls */}
-        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+        {/* Center: Playback Controls - Balanced and Centered */}
+        <div className="flex items-center justify-center gap-2 sm:gap-4 shrink-0">
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -250,6 +253,18 @@ export const MiniPlayer: React.FC = () => {
           <button
             onClick={(e) => {
               e.stopPropagation();
+              useAudioStore.getState().setPlayerPresentationMode('full');
+              setFullscreenPlayerOpen(true);
+            }}
+            title="Expand Full Player"
+            className="md:hidden p-2 rounded-full text-[#8f867e] hover:text-[#f3c5a6] hover:bg-white/[0.05] transition-colors"
+          >
+            <Maximize2 className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
               cycleRepeat();
             }}
             title={`Repeat: ${repeat}`}
@@ -262,7 +277,7 @@ export const MiniPlayer: React.FC = () => {
         </div>
 
         {/* Right: Inline Scrubber, Volume & Quick Actions (Desktop only) */}
-        <div className="hidden md:flex items-center gap-3 sm:gap-4 flex-1 justify-end max-w-[650px]">
+        <div className="hidden md:flex items-center gap-3 sm:gap-4 flex-1 justify-end max-w-[650px] shrink-0">
           {/* Scrubber Bar */}
           <div className="flex items-center gap-2.5 flex-1 max-w-[320px]">
             <span className="text-[11px] font-mono text-[#8f867e] w-8 text-right shrink-0">
@@ -314,11 +329,12 @@ export const MiniPlayer: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setLyricsOpen(!isLyricsOpen)}
-              title="Lyrics"
-              className={`hidden sm:flex p-1.5 rounded-lg transition-colors ${
-                isLyricsOpen ? 'text-[#f3c5a6] bg-[#f3c5a6]/15' : 'hover:text-[#fbf6f1] hover:bg-white/[0.05]'
-              }`}
+              onClick={() => {
+                useAudioStore.getState().setFullPlayerTab('live-lyrics');
+                setFullscreenPlayerOpen(true);
+              }}
+              title="Live Lyrics"
+              className="hidden sm:flex p-1.5 rounded-lg hover:text-[#f3c5a6] hover:bg-white/[0.05] transition-colors"
             >
               <Mic2 className="w-4 h-4" />
             </button>
@@ -341,6 +357,17 @@ export const MiniPlayer: React.FC = () => {
               }`}
             >
               <ListMusic className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => {
+                useAudioStore.getState().setPlayerPresentationMode('full');
+                setFullscreenPlayerOpen(true);
+              }}
+              title="Expand Full Player"
+              className="p-1.5 rounded-lg hover:text-[#f3c5a6] hover:bg-white/[0.05] transition-colors"
+            >
+              <Maximize2 className="w-4 h-4" />
             </button>
           </div>
         </div>

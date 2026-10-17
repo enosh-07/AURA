@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { Track, Playlist } from '../types/audio';
-import { SAMPLE_TRACKS } from '../audio/sampleTracks';
 import { idbService } from '../services/idbStorage';
 import { parseAudioFile } from '../services/metadataParser';
 import { apiClient } from '../services/apiClient';
+import { realtimeSync } from '../services/realtimeSync';
+import { useAuthStore } from './useAuthStore';
 
 interface LibraryStoreState {
   allTracks: Track[];
@@ -12,6 +13,7 @@ interface LibraryStoreState {
   likedSongIds: string[];
   playlists: Playlist[];
   isLoading: boolean;
+  isSaving: boolean;
 
   // Actions
   loadInitialData: () => Promise<void>;
@@ -27,36 +29,30 @@ interface LibraryStoreState {
   removeTrackFromPlaylist: (playlistId: string, trackId: string) => Promise<void>;
   uploadTrackToCloud: (trackId: string) => Promise<Track | null>;
   syncUserData: () => Promise<void>;
+  resetToGuestLibrary: () => Promise<void>;
+  migrateGuestDataToServer: () => Promise<{
+    migratedLikes: number;
+    migratedPlaylists: number;
+    success: boolean;
+  }>;
 }
 
-const DEFAULT_PLAYLISTS: Playlist[] = [
-  {
-    id: 'pl-synthwave',
-    title: 'Neon Nights & Cyber City',
-    description: 'Analog synthesizers, retro-futuristic basslines, and high-speed nocturnal highways.',
-    coverUrl: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=800&auto=format&fit=crop&q=80',
-    trackIds: ['track-1', 'track-4'],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'pl-focus',
-    title: 'Deep Quantum Equilibrium',
-    description: 'Sub-bass ambient drones, organic lo-fi rhythms, and non-intrusive soundscapes for extreme focus.',
-    coverUrl: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?w=800&auto=format&fit=crop&q=80',
-    trackIds: ['track-2', 'track-3', 'track-5'],
-    createdAt: new Date().toISOString(),
-  }
-];
-
 export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
-  allTracks: [...SAMPLE_TRACKS],
+  allTracks: [],
   localTracks: [],
   onlineTracks: [],
-  likedSongIds: ['track-1', 'track-3'],
-  playlists: DEFAULT_PLAYLISTS,
+  likedSongIds: [],
+  playlists: [],
   isLoading: false,
+  isSaving: false,
 
   syncUserData: async () => {
+    const isAuth = useAuthStore.getState().isAuthenticated;
+    if (!isAuth) {
+      await get().resetToGuestLibrary();
+      return;
+    }
+
     try {
       const [apiPlaylists, serverLikes] = await Promise.all([
         apiClient.getPlaylists(),
@@ -64,47 +60,65 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       ]);
 
       set((state) => ({
-        playlists: apiPlaylists && apiPlaylists.length > 0 ? apiPlaylists : state.playlists,
-        likedSongIds: serverLikes !== undefined ? serverLikes : state.likedSongIds,
+        playlists: apiPlaylists && Array.isArray(apiPlaylists) ? apiPlaylists : state.playlists,
+        likedSongIds: serverLikes && Array.isArray(serverLikes) ? serverLikes : state.likedSongIds,
       }));
     } catch (err) {
       console.warn('Failed to sync user data from DB:', err);
     }
   },
 
+  resetToGuestLibrary: async () => {
+    try {
+      const guestLikes = await idbService.getGuestLikedSongIds();
+      const guestPlaylists = await idbService.getGuestPlaylists();
+      set({
+        likedSongIds: guestLikes || [],
+        playlists: guestPlaylists || [],
+      });
+    } catch (err) {
+      console.warn('Failed to reset to guest library:', err);
+      set({ likedSongIds: [], playlists: [] });
+    }
+  },
+
   loadInitialData: async () => {
     set({ isLoading: true });
     try {
-      const [savedLocal, savedLikes, savedPlaylists, apiTracks, apiPlaylists, onlineTrending, serverLikes] = await Promise.all([
+      const isAuth = useAuthStore.getState().isAuthenticated;
+      const [savedLocal, guestLikes, guestPlaylists, apiTracks, onlineTrending] = await Promise.all([
         idbService.getLocalTracks(),
-        idbService.getLikedSongIds(),
-        idbService.getPlaylists(),
+        idbService.getGuestLikedSongIds(),
+        idbService.getGuestPlaylists(),
         apiClient.getTracks(),
-        apiClient.getPlaylists(),
         apiClient.getOnlineTrending('All', 30),
-        apiClient.getLikedTrackIds(),
       ]);
 
-      const localList = savedLocal || [];
-      const likesList = serverLikes && serverLikes.length > 0
-        ? serverLikes
-        : savedLikes.length > 0
-        ? savedLikes
-        : ['track-1', 'track-3'];
-      
-      const mergedPlaylists = [
-        ...(apiPlaylists.length > 0 ? apiPlaylists : DEFAULT_PLAYLISTS),
-        ...(savedPlaylists.filter((sp) => !apiPlaylists.some((ap) => ap.id === sp.id))),
-      ];
+      let userPlaylists = guestPlaylists || [];
+      let userLikes = guestLikes || [];
 
-      const baseTracks = apiTracks.length > 0 ? apiTracks : SAMPLE_TRACKS;
+      if (isAuth) {
+        try {
+          const [serverPlaylists, serverLikes] = await Promise.all([
+            apiClient.getPlaylists(),
+            apiClient.getLikedTrackIds(),
+          ]);
+          if (serverPlaylists && Array.isArray(serverPlaylists)) userPlaylists = serverPlaylists;
+          if (serverLikes && Array.isArray(serverLikes)) userLikes = serverLikes;
+        } catch (e) {
+          console.warn('Could not load user data during initial load:', e);
+        }
+      }
+
+      const localList = savedLocal || [];
+      const baseTracks = apiTracks || [];
       const onlineList = onlineTrending && onlineTrending.length > 0 ? onlineTrending : [];
 
       set({
         localTracks: localList,
         onlineTracks: onlineList,
-        likedSongIds: likesList,
-        playlists: mergedPlaylists,
+        likedSongIds: userLikes,
+        playlists: userPlaylists,
         allTracks: [...baseTracks, ...onlineList, ...localList],
         isLoading: false,
       });
@@ -120,7 +134,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       if (tracks && tracks.length > 0) {
         const { allTracks } = get();
         const nonOnline = allTracks.filter(
-          (t) => !t.id.startsWith('audius_') && !t.id.startsWith('itunes_') && !t.isOnline
+          (t) => !t.id.startsWith('audius_') && !t.id.startsWith('itunes_') && !t.id.startsWith('saavn_') && !t.isOnline
         );
         set({
           onlineTracks: tracks,
@@ -151,11 +165,12 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       }
     }
 
-    const { localTracks } = get();
+    const { localTracks, allTracks } = get();
     const updatedLocal = [...parsedTracks, ...localTracks];
+    const nonLocalTracks = allTracks.filter((t) => !t.isLocal);
     set({
       localTracks: updatedLocal,
-      allTracks: [...SAMPLE_TRACKS, ...updatedLocal],
+      allTracks: [...nonLocalTracks, ...updatedLocal],
       isLoading: false,
     });
 
@@ -163,25 +178,61 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   },
 
   removeLocalTrack: async (trackId: string) => {
-    const { localTracks } = get();
+    const { localTracks, allTracks } = get();
     const updated = localTracks.filter((t) => t.id !== trackId);
     set({
       localTracks: updated,
-      allTracks: [...SAMPLE_TRACKS, ...updated],
+      allTracks: allTracks.filter((t) => t.id !== trackId),
     });
     await idbService.saveLocalTracks(updated);
   },
 
   toggleLike: async (trackId: string) => {
-    const { likedSongIds } = get();
+    const { likedSongIds, allTracks } = get();
     const isAlreadyLiked = likedSongIds.includes(trackId);
     const updated = isAlreadyLiked
       ? likedSongIds.filter((id) => id !== trackId)
       : [...likedSongIds, trackId];
 
+    // Optimistic UI update
     set({ likedSongIds: updated });
-    await idbService.saveLikedSongIds(updated);
-    apiClient.toggleLike(trackId, !isAlreadyLiked).catch(() => {});
+
+    const isAuth = useAuthStore.getState().isAuthenticated;
+    if (isAuth) {
+      set({ isSaving: true });
+      const track = allTracks.find((t) => t.id === trackId);
+      try {
+        const ok = await apiClient.toggleLike(
+          trackId,
+          !isAlreadyLiked,
+          track
+            ? {
+                title: track.title,
+                artist: track.artist,
+                artworkUrl: track.artworkUrl || track.artwork,
+                streamUrl: track.streamUrl || track.audioUrl,
+                duration: track.duration,
+                genre: track.genre,
+                isOnline: track.isOnline,
+              }
+            : undefined
+        );
+        if (!ok) {
+          throw new Error('Server rejected like update');
+        }
+        // Broadcast across tabs/devices
+        realtimeSync.broadcast('LIKE_MUTATION', { trackId, liked: !isAlreadyLiked });
+      } catch (err) {
+        console.warn('Failed to sync like with server, rolling back:', err);
+        // Rollback optimistic update
+        set({ likedSongIds });
+      } finally {
+        set({ isSaving: false });
+      }
+    } else {
+      // Guest isolation in IndexedDB
+      await idbService.saveGuestLikedSongIds(updated);
+    }
   },
 
   isLiked: (trackId: string) => {
@@ -189,6 +240,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   },
 
   createPlaylist: async (title: string, description = '', trackIds = [], coverUrl = '') => {
+    const isAuth = useAuthStore.getState().isAuthenticated;
     let newPlaylist: Playlist = {
       id: `pl-${Date.now()}`,
       title,
@@ -201,35 +253,55 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       isCustom: true,
     };
 
-    try {
-      const serverPlaylist = await apiClient.createPlaylist({ title, description, trackIds });
-      if (serverPlaylist && serverPlaylist.id) {
-        newPlaylist = {
-          ...newPlaylist,
-          id: serverPlaylist.id,
-        };
+    if (isAuth) {
+      try {
+        set({ isSaving: true });
+        const serverPlaylist = await apiClient.createPlaylist({ title, description, trackIds });
+        if (serverPlaylist && serverPlaylist.id) {
+          newPlaylist = {
+            ...newPlaylist,
+            id: serverPlaylist.id,
+          };
+        }
+        realtimeSync.broadcast('PLAYLIST_MUTATION', { action: 'create', playlistId: newPlaylist.id });
+      } catch (err) {
+        console.warn('Failed to persist playlist to server:', err);
+      } finally {
+        set({ isSaving: false });
       }
-    } catch {
-      // Offline fallback
     }
 
     const { playlists } = get();
     const updated = [newPlaylist, ...playlists];
     set({ playlists: updated });
-    await idbService.savePlaylists(updated);
+
+    if (!isAuth) {
+      await idbService.saveGuestPlaylists(updated);
+    }
     return newPlaylist;
   },
 
   deletePlaylist: async (id: string) => {
     const { playlists } = get();
+    const isAuth = useAuthStore.getState().isAuthenticated;
     const updated = playlists.filter((p) => p.id !== id);
     set({ playlists: updated });
-    await idbService.savePlaylists(updated);
-    apiClient.deletePlaylist(id).catch(() => {});
+
+    if (isAuth) {
+      try {
+        await apiClient.deletePlaylist(id);
+        realtimeSync.broadcast('PLAYLIST_MUTATION', { action: 'delete', playlistId: id });
+      } catch (err) {
+        console.warn('Failed to delete playlist on server:', err);
+      }
+    } else {
+      await idbService.saveGuestPlaylists(updated);
+    }
   },
 
   updatePlaylist: async (id: string, updates: { title?: string; description?: string }) => {
     const { playlists } = get();
+    const isAuth = useAuthStore.getState().isAuthenticated;
     const updated = playlists.map((p) => {
       if (p.id === id) {
         return { ...p, ...updates };
@@ -237,12 +309,22 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       return p;
     });
     set({ playlists: updated });
-    await idbService.savePlaylists(updated);
-    apiClient.updatePlaylist(id, updates).catch(() => {});
+
+    if (isAuth) {
+      try {
+        await apiClient.updatePlaylist(id, updates);
+        realtimeSync.broadcast('PLAYLIST_MUTATION', { action: 'update', playlistId: id });
+      } catch (err) {
+        console.warn('Failed to update playlist on server:', err);
+      }
+    } else {
+      await idbService.saveGuestPlaylists(updated);
+    }
   },
 
   addTrackToPlaylist: async (playlistId: string, trackId: string) => {
-    const { playlists } = get();
+    const { playlists, allTracks } = get();
+    const isAuth = useAuthStore.getState().isAuthenticated;
     const updated = playlists.map((p) => {
       if (p.id === playlistId && !p.trackIds.includes(trackId)) {
         return { ...p, trackIds: [...p.trackIds, trackId] };
@@ -250,12 +332,37 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       return p;
     });
     set({ playlists: updated });
-    await idbService.savePlaylists(updated);
-    apiClient.addTrackToPlaylist(playlistId, trackId).catch(() => {});
+
+    if (isAuth) {
+      try {
+        const track = allTracks.find((t) => t.id === trackId);
+        await apiClient.addTrackToPlaylist(
+          playlistId,
+          trackId,
+          track
+            ? {
+                title: track.title,
+                artist: track.artist,
+                artworkUrl: track.artworkUrl || track.artwork,
+                streamUrl: track.streamUrl || track.audioUrl,
+                duration: track.duration,
+                genre: track.genre,
+                isOnline: track.isOnline,
+              }
+            : undefined
+        );
+        realtimeSync.broadcast('PLAYLIST_MUTATION', { action: 'add_track', playlistId, trackId });
+      } catch (err) {
+        console.warn('Failed to add track to playlist on server:', err);
+      }
+    } else {
+      await idbService.saveGuestPlaylists(updated);
+    }
   },
 
   removeTrackFromPlaylist: async (playlistId: string, trackId: string) => {
     const { playlists } = get();
+    const isAuth = useAuthStore.getState().isAuthenticated;
     const updated = playlists.map((p) => {
       if (p.id === playlistId) {
         return { ...p, trackIds: p.trackIds.filter((id) => id !== trackId) };
@@ -263,8 +370,17 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       return p;
     });
     set({ playlists: updated });
-    await idbService.savePlaylists(updated);
-    apiClient.removeTrackFromPlaylist(playlistId, trackId).catch(() => {});
+
+    if (isAuth) {
+      try {
+        await apiClient.removeTrackFromPlaylist(playlistId, trackId);
+        realtimeSync.broadcast('PLAYLIST_MUTATION', { action: 'remove_track', playlistId, trackId });
+      } catch (err) {
+        console.warn('Failed to remove track from playlist on server:', err);
+      }
+    } else {
+      await idbService.saveGuestPlaylists(updated);
+    }
   },
 
   uploadTrackToCloud: async (trackId: string) => {
@@ -291,5 +407,74 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       return uploaded;
     }
     return null;
+  },
+
+  migrateGuestDataToServer: async () => {
+    const guestLikes = await idbService.getGuestLikedSongIds();
+    const guestPlaylists = await idbService.getGuestPlaylists();
+    const { likedSongIds, playlists, allTracks } = get();
+
+    let migratedLikes = 0;
+    let migratedPlaylists = 0;
+
+    try {
+      // 1. Deduplicate & migrate likes
+      const likesToMigrate = guestLikes.filter((id: string) => !likedSongIds.includes(id));
+      for (const trackId of likesToMigrate) {
+        const track = allTracks.find((t) => t.id === trackId);
+        const ok = await apiClient.toggleLike(
+          trackId,
+          true,
+          track
+            ? {
+                title: track.title,
+                artist: track.artist,
+                artworkUrl: track.artworkUrl || track.artwork,
+                streamUrl: track.streamUrl || track.audioUrl,
+                duration: track.duration,
+                genre: track.genre,
+                isOnline: track.isOnline,
+              }
+            : undefined
+        );
+        if (ok) migratedLikes++;
+      }
+
+      // 2. Deduplicate & migrate playlists
+      for (const pl of guestPlaylists) {
+        const existing = playlists.find(
+          (p) => p.title.toLowerCase().trim() === pl.title.toLowerCase().trim()
+        );
+        if (!existing) {
+          const created = await apiClient.createPlaylist({
+            title: pl.title,
+            description: pl.description,
+            trackIds: pl.trackIds,
+          });
+          if (created) migratedPlaylists++;
+        }
+      }
+
+      // 3. Clear guest data ONLY after successful server migration
+      await idbService.clearAllGuestData();
+
+      // 4. Refresh authoritative library from server
+      await get().syncUserData();
+
+      return {
+        migratedLikes,
+        migratedPlaylists,
+        success: true,
+      };
+    } catch (err) {
+      console.error('Failed to migrate guest data to server:', err);
+      // Attempt partial sync
+      await get().syncUserData().catch(() => {});
+      return {
+        migratedLikes,
+        migratedPlaylists,
+        success: false,
+      };
+    }
   },
 }));

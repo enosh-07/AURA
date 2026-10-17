@@ -298,10 +298,45 @@ All platform-specific code is isolated here. React components never directly imp
 | `deepLinks.ts` | Deep link routing |
 | `share.ts` | Native share sheet & clipboard fallback |
 
+### Central Capability System (Phase 13.2)
+
+Instead of scattering platform checks (`isDesktop`, `isMobile`, `isTauri`) across UI components, AURA provides a central capability-based abstraction layer.
+
+#### 11 Canonical Capabilities
+1. `backgroundPlayback`: Continuous playback when app is backgrounded or screen locked.
+2. `offlineStorage`: Persistent binary/KV cache (IndexedDB, AppData, or native FS).
+3. `nativeNotifications`: System-level push or local notifications.
+4. `mediaControls`: Hardware media keys, lock screen & System Media Transport Controls.
+5. `filesystemAccess`: Direct native filesystem read/write access.
+6. `nativeDownloads`: Native package and track download management.
+7. `deepLinks`: `aura://` custom protocol routing.
+8. `nativeShare`: Native OS share sheet (falls back to clipboard).
+9. `bluetoothAudio`: Bluetooth audio device routing & detection.
+10. `spatialAudio`: Web Audio spatial audio / 3D stereo panning engine.
+11. `localMusicImport`: Audio file ingestion, ID3v2 extraction & persistent caching.
+
+#### Component Usage
+```tsx
+import { useCapability } from '../hooks/usePlatform';
+
+export const MyComponent: React.FC = () => {
+  const canShare = useCapability('nativeShare');
+  const hasSpatial = useCapability('spatialAudio');
+
+  return (
+    <div>
+      {/* UI degrades gracefully when capability is unsupported */}
+      {canShare ? <ShareButton /> : <CopyLinkButton />}
+    </div>
+  );
+};
+```
+
 ### Import Rule
 ```ts
-// ✅ Correct — always import from platform barrel
-import { capabilities, DownloadManager, AuthService } from '../platform';
+// ✅ Correct — always import from platform barrel or useCapability hook
+import { capabilities, hasCapability } from '../platform';
+import { useCapability } from '../hooks/usePlatform';
 
 // ❌ Wrong — never import platform APIs directly in components
 import { Filesystem } from '@capacitor/filesystem';

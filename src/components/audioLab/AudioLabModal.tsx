@@ -16,10 +16,12 @@ import {
   Cloud,
 } from 'lucide-react';
 import { VisualizerCanvas } from '../visualizer/VisualizerCanvas';
+import { useCapability } from '../../hooks/usePlatform';
 
 export const AudioLabModal: React.FC = () => {
   const isAudioLabOpen = useUIStore((state) => state.isAudioLabOpen);
   const setAudioLabOpen = useUIStore((state) => state.setAudioLabOpen);
+  const hasSpatialAudio = useCapability('spatialAudio');
 
   const settings = useAudioLabStore((state) => state.settings);
   const customPresets = useAudioLabStore((state) => state.customPresets);
@@ -297,13 +299,15 @@ export const AudioLabModal: React.FC = () => {
           </div>
 
           {/* Stereo Panning */}
-          <div className="p-4 bg-aura-void/40 rounded-2xl border border-white/5 flex flex-col gap-2">
+          <div className={`p-4 bg-aura-void/40 rounded-2xl border border-white/5 flex flex-col gap-2 ${!hasSpatialAudio ? 'opacity-50 pointer-events-none' : ''}`}>
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-white flex items-center gap-1.5">
                 <MoveHorizontal className="w-3.5 h-3.5 text-aura-emerald" /> Stereo Pan
               </span>
               <span className="text-xs font-mono text-aura-emerald font-bold">
-                {settings.stereoPan === 0
+                {!hasSpatialAudio
+                  ? 'N/A'
+                  : settings.stereoPan === 0
                   ? 'Center'
                   : settings.stereoPan < 0
                   ? `L ${Math.abs(settings.stereoPan * 100).toFixed(0)}%`
@@ -315,10 +319,16 @@ export const AudioLabModal: React.FC = () => {
               min={-1}
               max={1}
               step={0.1}
+              disabled={!hasSpatialAudio}
               value={settings.stereoPan}
               onChange={(e) => setStereoPan(parseFloat(e.target.value))}
-              className="w-full accent-aura-emerald cursor-pointer"
+              className="w-full accent-aura-emerald cursor-pointer disabled:cursor-not-allowed"
             />
+            {!hasSpatialAudio && (
+              <span className="text-[10px] text-amber-400 font-mono">
+                Spatial panning unavailable in current audio context
+              </span>
+            )}
           </div>
 
           {/* Reverb Emulation */}

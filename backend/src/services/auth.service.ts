@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from './prisma.js';
 import { ENV } from '../config/env.js';
+import { emailService } from './email.service.js';
 
 export class AuthService {
   async register(name: string, email: string, password: string) {
@@ -29,6 +30,11 @@ export class AuthService {
       include: { preferences: true },
     });
 
+    // Trigger transactional welcome email asynchronously
+    emailService.sendWelcomeEmail(user.email, user.name).catch((err) => {
+      console.warn('[AuthService] Welcome email dispatch warning:', err.message);
+    });
+
     const tokens = this.generateTokens(user.id, user.email);
     await prisma.refreshToken.create({
       data: {
@@ -40,6 +46,7 @@ export class AuthService {
 
     return { user: this.formatUser(user), ...tokens };
   }
+
 
   async login(email: string, password: string) {
     const user = await prisma.user.findUnique({

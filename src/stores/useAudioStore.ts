@@ -1,9 +1,18 @@
 import { create } from 'zustand';
-import { Track, RepeatMode, QualityTier, QualityPreference } from '../types/audio';
-import { SAMPLE_TRACKS } from '../audio/sampleTracks';
+import {
+  Track,
+  RepeatMode,
+  QualityTier,
+  QualityPreference,
+  PlayerPresentationMode,
+  FullPlayerTab,
+  LyricsState,
+  AudioQualityReport,
+} from '../types/audio';
 import { audioEngine } from '../audio/AudioEngine';
 import { apiClient, API_BASE_URL } from '../services/apiClient';
 import { useLibraryStore } from './useLibraryStore';
+import { useUIStore } from './useUIStore';
 import { mediaControls } from '../platform/mediaControls';
 import {
   activateBackgroundPlayback,
@@ -14,7 +23,7 @@ import { registerDeepLinkListeners, addDeepLinkHandler } from '../platform/deepL
 export interface DeliveredQuality {
   codec: string;
   container: string;
-  bitDepth: number;
+  bitDepth: number | null;
   sampleRate: number;
   channels: number;
   bitrate: number;
@@ -45,9 +54,18 @@ interface AudioStoreState {
   streamingQualityPreference: QualityPreference;
   bitPerfectMode: boolean;
   actualDeliveredQuality: DeliveredQuality | null;
+  audioQualityReport: AudioQualityReport | null;
+
+  // Presentation & Live Lyrics
+  playerPresentationMode: PlayerPresentationMode;
+  fullPlayerTab: FullPlayerTab;
+  lyricsState: LyricsState;
 
   // Actions
-  playTrack: (track: Track, newQueue?: Track[]) => void;
+  playTrack: (track: Track, newQueue?: Track[], options?: { autoOpenPlayer?: boolean }) => Promise<void> | void;
+  setPlayerPresentationMode: (mode: PlayerPresentationMode) => void;
+  setFullPlayerTab: (tab: FullPlayerTab) => void;
+  fetchLyricsForTrack: (track: Track) => Promise<void>;
   togglePlay: () => void;
   nextTrack: () => void;
   prevTrack: () => void;
@@ -66,10 +84,12 @@ interface AudioStoreState {
   cancelSleepTimer: () => void;
   updateCurrentTime: (time: number) => void;
   setBuffering: (buffering: boolean) => void;
-  setStreamingQualityPreference: (pref: QualityPreference) => void;
+  setStreamingQualityPreference: (pref: QualityPreference) => Promise<void> | void;
   setBitPerfectMode: (enabled: boolean) => void;
   setActualDeliveredQuality: (quality: DeliveredQuality | null) => void;
   fetchQualityInfo: (trackId: string) => Promise<void>;
+  fetchQualityReport: (trackId: string, requestedTier?: QualityPreference) => Promise<void>;
+  switchToLosslessAlternative: (altTrackId: string) => Promise<void>;
   restorePlaybackFromDB: () => Promise<void>;
 }
 
@@ -95,14 +115,14 @@ export function syncPlaybackToDB() {
 let sleepTimerInterval: number | null = null;
 
 export const useAudioStore = create<AudioStoreState>((set, get) => ({
-  currentTrack: SAMPLE_TRACKS[0],
+  currentTrack: null,
   isPlaying: false,
   currentTime: 0,
-  duration: SAMPLE_TRACKS[0].duration,
+  duration: 0,
   volume: 0.8,
   isMuted: false,
   playbackRate: 1.0,
-  queue: [...SAMPLE_TRACKS],
+  queue: [],
   queueIndex: 0,
   history: [],
   shuffle: false,
@@ -114,28 +134,166 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
   // Genuine Lossless System & Bit-Perfect Initial State
   streamingQualityPreference: 'AUTO',
   bitPerfectMode: false,
-  actualDeliveredQuality: {
-    codec: 'FLAC',
-    container: 'FLAC',
-    bitDepth: 24,
-    sampleRate: 96000,
-    channels: 2,
-    bitrate: 2840,
-    qualityTier: 'HI_RES_LOSSLESS',
-    isLossless: true,
-    isGenuineLossless: true,
-    validationNotes: 'GENUINE HI_RES_LOSSLESS: 24-bit / 96.0 kHz Verified Source',
+  actualDeliveredQuality: null,
+  audioQualityReport: null,
+
+  // Presentation & Live Lyrics
+  playerPresentationMode: 'mini',
+  fullPlayerTab: 'artwork',
+  lyricsState: {
+    trackId: null,
+    status: 'idle',
+    source: 'none',
+    hasSync: false,
+    isInstrumental: false,
+    lines: [],
   },
 
-  playTrack: (track: Track, newQueue?: Track[]) => {
+  setPlayerPresentationMode: (mode) => {
+    set({ playerPresentationMode: mode });
+    useUIStore.getState().setFullscreenPlayerOpen(mode === 'full');
+  },
+
+  setFullPlayerTab: (tab) => {
+    set({ fullPlayerTab: tab });
+    useUIStore.getState().setFullPlayerTab(tab);
+  },
+
+  fetchLyricsForTrack: async (track: Track) => {
+    // 1. Reset state immediately so previous track's lyrics never appear
+    set({
+      lyricsState: {
+        trackId: track.id,
+        status: 'loading',
+        source: 'none',
+        hasSync: false,
+        isInstrumental: false,
+        lines: [],
+        plainLyrics: undefined,
+      },
+    });
+
+    // 2. Check embedded lyrics if present on track object
+    if (track.lyrics && Array.isArray(track.lyrics) && track.lyrics.length > 0) {
+      set({
+        lyricsState: {
+          trackId: track.id,
+          status: 'loaded',
+          source: 'embedded',
+          hasSync: true,
+          isInstrumental: false,
+          lines: track.lyrics,
+          plainLyrics: track.plainLyrics,
+        },
+      });
+      return;
+    }
+
+    // 3. Query backend / LRCLIB provider
+    try {
+      const res = await apiClient.getLyrics(track.id, {
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        duration: track.duration,
+      });
+
+      // Guard against race conditions if track changed while fetching
+      if (get().currentTrack?.id !== track.id) return;
+
+      if (!res) {
+        set({
+          lyricsState: {
+            trackId: track.id,
+            status: 'not_found',
+            source: 'none',
+            hasSync: false,
+            isInstrumental: false,
+            lines: [],
+            plainLyrics: track.plainLyrics,
+          },
+        });
+        return;
+      }
+
+      if (res.isInstrumental) {
+        set({
+          lyricsState: {
+            trackId: track.id,
+            status: 'instrumental',
+            source: res.source || 'lrclib',
+            hasSync: false,
+            isInstrumental: true,
+            lines: [],
+          },
+        });
+        return;
+      }
+
+      if (res.hasSync && Array.isArray(res.lines) && res.lines.length > 0) {
+        set({
+          lyricsState: {
+            trackId: track.id,
+            status: 'loaded',
+            source: res.source || 'lrclib',
+            hasSync: true,
+            isInstrumental: false,
+            lines: res.lines,
+            plainLyrics: res.plainLyrics || track.plainLyrics,
+          },
+        });
+      } else if (res.plainLyrics || track.plainLyrics) {
+        set({
+          lyricsState: {
+            trackId: track.id,
+            status: 'loaded',
+            source: res.source || 'lrclib',
+            hasSync: false,
+            isInstrumental: false,
+            lines: [],
+            plainLyrics: res.plainLyrics || track.plainLyrics,
+          },
+        });
+      } else {
+        set({
+          lyricsState: {
+            trackId: track.id,
+            status: 'not_found',
+            source: 'none',
+            hasSync: false,
+            isInstrumental: false,
+            lines: [],
+          },
+        });
+      }
+    } catch (err: any) {
+      if (get().currentTrack?.id !== track.id) return;
+      set({
+        lyricsState: {
+          trackId: track.id,
+          status: 'error',
+          source: 'none',
+          hasSync: false,
+          isInstrumental: false,
+          lines: [],
+          error: err?.message || 'Failed to load lyrics',
+        },
+      });
+    }
+  },
+
+  playTrack: async (track: Track, newQueue?: Track[], options?: { autoOpenPlayer?: boolean }) => {
     const { queue } = get();
     const updatedQueue = newQueue || (queue.length > 0 ? queue : [track]);
     const trackIndex = updatedQueue.findIndex((t) => t.id === track.id);
     const newIndex = trackIndex !== -1 ? trackIndex : 0;
+    const shouldOpen = options?.autoOpenPlayer ?? true;
 
+    // Set playback state and optionally open Full Player
     set((state) => ({
       currentTrack: track,
       isPlaying: true,
+      playerPresentationMode: shouldOpen ? 'full' : state.playerPresentationMode,
       queue: updatedQueue,
       queueIndex: newIndex,
       currentTime: 0,
@@ -143,7 +301,33 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
       history: state.currentTrack ? [state.currentTrack, ...state.history.slice(0, 49)] : state.history,
     }));
 
-    audioEngine.playTrack(track).catch(console.error);
+    if (shouldOpen) {
+      useUIStore.getState().setFullscreenPlayerOpen(true);
+      useUIStore.getState().setPlayerPresentationMode('full');
+    }
+
+    // Trigger instant lyrics fetch for new track
+    get().fetchLyricsForTrack(track);
+
+    // Determine network-aware quality tier
+    const pref = get().streamingQualityPreference;
+    const effectiveTier = pref === 'AUTO' ? audioEngine.getOptimalQualityForNetwork() : pref;
+
+    // Secure token exchange for protected streams if not local file blob
+    let signedUrl: string | undefined;
+    const isOnlineTrack = !!(track.isOnline || track.id.startsWith('saavn_') || track.id.startsWith('itunes_') || track.audioUrl.includes('/online/'));
+    if (!track.fileBlob && !track.audioUrl.startsWith('blob:') && !isOnlineTrack) {
+      try {
+        const tokenRes = await apiClient.getStreamToken(track.id, effectiveTier);
+        if (tokenRes?.streamUrl) {
+          signedUrl = tokenRes.streamUrl;
+        }
+      } catch (err) {
+        console.warn('[useAudioStore] Could not obtain signed stream token, falling back to direct stream:', err);
+      }
+    }
+
+    audioEngine.playTrack(track, { signedUrl, qualityTier: effectiveTier }).catch(console.error);
     get().fetchQualityInfo(track.id);
     syncPlaybackToDB();
 
@@ -210,7 +394,7 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
     const next = queue[nextIndex];
     if (next) {
       set({ queueIndex: nextIndex });
-      playTrack(next);
+      playTrack(next, undefined, { autoOpenPlayer: get().playerPresentationMode === 'full' });
     }
   },
 
@@ -226,7 +410,7 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
     const prev = queue[prevIndex];
     if (prev) {
       set({ queueIndex: prevIndex });
-      playTrack(prev);
+      playTrack(prev, undefined, { autoOpenPlayer: get().playerPresentationMode === 'full' });
     }
   },
 
@@ -364,12 +548,28 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
     set({ isBuffering: buffering });
   },
 
-  setStreamingQualityPreference: (pref: QualityPreference) => {
+  setStreamingQualityPreference: async (pref: QualityPreference) => {
     set({ streamingQualityPreference: pref });
-    const { currentTrack } = get();
+    const { currentTrack, currentTime } = get();
     if (currentTrack) {
-      audioEngine.playTrack(currentTrack).catch(console.error);
+      const effectiveTier = pref === 'AUTO' ? audioEngine.getOptimalQualityForNetwork() : pref;
+      let signedUrl: string | undefined;
+      const isOnlineTrack = !!(currentTrack.isOnline || currentTrack.id.startsWith('saavn_') || currentTrack.id.startsWith('itunes_') || currentTrack.audioUrl.includes('/online/'));
+      if (!currentTrack.fileBlob && !currentTrack.audioUrl.startsWith('blob:') && !isOnlineTrack) {
+        try {
+          const tokenRes = await apiClient.getStreamToken(currentTrack.id, effectiveTier);
+          if (tokenRes?.streamUrl) {
+            signedUrl = tokenRes.streamUrl;
+          }
+        } catch (err) {
+          console.warn('[useAudioStore] Failed to acquire stream token for new quality:', err);
+        }
+      }
+      audioEngine
+        .playTrack(currentTrack, { resumeTime: currentTime, signedUrl, qualityTier: effectiveTier })
+        .catch(console.error);
       get().fetchQualityInfo(currentTrack.id);
+      get().fetchQualityReport(currentTrack.id, pref);
     }
     syncPlaybackToDB();
   },
@@ -385,6 +585,8 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
   },
 
   fetchQualityInfo: async (trackId: string) => {
+    // Fetch both telemetry info and the comprehensive typed quality report
+    get().fetchQualityReport(trackId);
     try {
       const res = await fetch(`${API_BASE_URL}/tracks/${trackId}/quality-info`);
       if (res.ok) {
@@ -407,6 +609,69 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
         }
       }
     } catch (_) {}
+  },
+
+  fetchQualityReport: async (trackId: string, requestedTier?: QualityPreference) => {
+    try {
+      const { streamingQualityPreference, currentTrack } = get();
+      const tier = requestedTier || streamingQualityPreference || 'AUTO';
+      const params = new URLSearchParams({ tier });
+      if (currentTrack?.title) params.append('title', currentTrack.title);
+      if (currentTrack?.artist) params.append('artist', currentTrack.artist);
+
+      const res = await fetch(`${API_BASE_URL}/tracks/${trackId}/quality-report?${params.toString()}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          const report: AudioQualityReport = json.data;
+          // Inject real client browser audio metrics
+          report.playback.outputSampleRate = audioEngine.getOutputDeviceSampleRate();
+          report.playback.bitPerfectBypass = audioEngine.getBitPerfectMode();
+          report.playback.dspActive = audioEngine.getDSPStatus().isProcessing;
+
+          set({
+            audioQualityReport: report,
+            actualDeliveredQuality: {
+              codec: report.source.codec,
+              container: report.source.container,
+              bitDepth: report.source.bitDepth,
+              sampleRate: report.source.sampleRate || 44100,
+              channels: report.source.channels,
+              bitrate: report.source.bitrate || 320,
+              qualityTier: report.deliveredTier,
+              isLossless: report.source.isLossless,
+              isGenuineLossless: report.source.isLossless,
+              validationNotes: report.verification.notes,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[useAudioStore] Failed to fetch quality report:', err);
+    }
+  },
+
+  switchToLosslessAlternative: async (altTrackId: string) => {
+    const { currentTime, isPlaying } = get();
+    try {
+      const res = await fetch(`${API_BASE_URL}/tracks/${altTrackId}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          const altTrack: Track = json.data;
+          // Seamless switch preserving timestamp without resetting play state
+          await get().playTrack(altTrack, undefined, { autoOpenPlayer: false });
+          audioEngine.seek(currentTime);
+          set({ currentTime });
+          if (!isPlaying) {
+            audioEngine.pause();
+            set({ isPlaying: false });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[useAudioStore] Failed to switch to lossless alternative:', err);
+    }
   },
 
   restorePlaybackFromDB: async () => {
@@ -460,17 +725,25 @@ export const useAudioStore = create<AudioStoreState>((set, get) => ({
 
 // Listen for actual server response quality headers
 audioEngine.onQualityHeadersDetected = (headers) => {
-  const codec = (headers['x-audio-codec'] || 'FLAC').toUpperCase();
-  const tier = ((headers['x-audio-quality-tier'] || 'HI_RES_LOSSLESS').toUpperCase()) as QualityTier;
-  const bitDepth = parseInt(headers['x-audio-bit-depth'] || '24', 10);
-  const sampleRate = parseInt(headers['x-audio-sample-rate'] || '96000', 10);
-  const channels = parseInt(headers['x-audio-channels'] || '2', 10);
-  const bitrate = parseInt(headers['x-audio-bitrate'] || '1411', 10);
+  const codec = (headers['x-audio-codec'] || '').toUpperCase();
+  if (!codec) return;
+
+  const tier = ((headers['x-audio-quality-tier'] || 'HIGH').toUpperCase()) as QualityTier;
+  const bitDepthRaw = headers['x-audio-bit-depth'];
   const isLossless = headers['x-audio-lossless'] === 'true';
+  const bitDepth =
+    bitDepthRaw && bitDepthRaw !== 'null' && bitDepthRaw !== '0'
+      ? parseInt(bitDepthRaw, 10)
+      : isLossless
+      ? 16
+      : null;
+  const sampleRate = parseInt(headers['x-audio-sample-rate'] || '44100', 10);
+  const channels = parseInt(headers['x-audio-channels'] || '2', 10);
+  const bitrate = parseInt(headers['x-audio-bitrate'] || (isLossless ? '1411' : '320'), 10);
 
   useAudioStore.getState().setActualDeliveredQuality({
     codec,
-    container: (headers['x-audio-container'] || 'FLAC').toUpperCase(),
+    container: (headers['x-audio-container'] || (isLossless ? 'FLAC' : 'M4A')).toUpperCase(),
     bitDepth,
     sampleRate,
     channels,
@@ -479,8 +752,8 @@ audioEngine.onQualityHeadersDetected = (headers) => {
     isLossless,
     isGenuineLossless: isLossless,
     validationNotes: isLossless
-      ? `GENUINE ${tier}: Verified ${codec} ${bitDepth}-bit / ${(sampleRate / 1000).toFixed(1)} kHz`
-      : `Standard source: ${codec} ${bitrate} kbps`,
+      ? `GENUINE ${tier}: Verified ${codec} ${bitDepth ? `${bitDepth}-bit / ` : ''}${(sampleRate / 1000).toFixed(1)} kHz`
+      : `Authentic source: ${codec} ${bitrate} kbps (${(sampleRate / 1000).toFixed(1)} kHz)`,
   });
 };
 

@@ -4,6 +4,7 @@ import { useAudioStore } from '../../stores/useAudioStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useLibraryStore } from '../../stores/useLibraryStore';
 import { apiClient, API_HOST } from '../../services/apiClient';
+import { realtimeService, isSupabaseConfigured } from '../../services/supabaseClient';
 import {
   Users,
   Radio,
@@ -102,8 +103,61 @@ export const SocialRoomView: React.FC = () => {
     fetchRooms();
   }, []);
 
-  // Connect & switch room
+  // Connect & switch room (Supabase Realtime or Socket.IO fallback)
   useEffect(() => {
+    if (isSupabaseConfigured()) {
+      setIsConnected(true);
+      const cleanupSupabase = realtimeService.joinRoom(
+        activeRoomId,
+        {
+          id: user?.id || `usr_guest_${Math.random().toString(36).slice(2, 6)}`,
+          name: user?.name || 'AURA Node Member',
+          avatarUrl: user?.avatarUrl,
+        },
+        {
+          onPlaybackSync: (sync) => {
+            if (sync && sync.trackId) {
+              const match = allTracks.find((t) => t.id === sync.trackId);
+              if (match) {
+                playTrack(match);
+              }
+            }
+          },
+          onChatMessage: (msg) => {
+            setMessages((prev) => [
+              ...prev,
+              {
+                sender: msg.userName || 'Node Member',
+                text: msg.text,
+                time: new Date(msg.timestamp || Date.now()).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }),
+              },
+            ]);
+          },
+          onPresenceChange: (presenceList) => {
+            if (Array.isArray(presenceList) && presenceList.length > 0) {
+              setParticipants(
+                presenceList.map((p) => ({
+                  id: p.id,
+                  name: p.name || 'Listener',
+                  avatar: p.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120',
+                  role: p.id === hostId ? 'host' : 'listener',
+                  ping: Math.floor(Math.random() * 12) + 5,
+                }))
+              );
+            }
+          },
+        }
+      );
+
+      return () => {
+        cleanupSupabase();
+      };
+    }
+
+    // Fallback: Socket.IO
     const socket = io(`${API_HOST}/ws`, {
       transports: ['websocket', 'polling'],
       timeout: 3000,
@@ -169,7 +223,7 @@ export const SocialRoomView: React.FC = () => {
     return () => {
       socket.disconnect();
     };
-  }, [activeRoomId, user, allTracks]);
+  }, [activeRoomId, user, allTracks, hostId]);
 
   const handleCopyInvite = () => {
     const url = `${window.location.origin}?room=${activeRoomId}`;
@@ -187,7 +241,22 @@ export const SocialRoomView: React.FC = () => {
     const text = chatInput.trim();
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    if (socketRef.current && isConnected) {
+    if (isSupabaseConfigured()) {
+      realtimeService.broadcastChatMessage(activeRoomId, {
+        id: `msg_${Date.now()}`,
+        userId: user?.id || 'guest',
+        userName: user?.name || 'You',
+        text,
+      });
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: user?.name || 'You',
+          text,
+          time: timeStr,
+        },
+      ]);
+    } else if (socketRef.current && isConnected) {
       socketRef.current.emit('chat_message', {
         roomId: activeRoomId,
         userId: user?.id || 'guest',
@@ -208,12 +277,23 @@ export const SocialRoomView: React.FC = () => {
   };
 
   const handleBroadcastCurrentTrack = () => {
-    if (!currentTrack || !socketRef.current || !isConnected) return;
-    socketRef.current.emit('host_play', {
-      roomId: activeRoomId,
-      trackId: currentTrack.id,
-      currentTime: Math.round(currentTime),
-    });
+    if (!currentTrack) return;
+
+    if (isSupabaseConfigured()) {
+      realtimeService.broadcastPlayback(activeRoomId, {
+        isPlaying: true,
+        currentTime: Math.round(currentTime),
+        trackId: currentTrack.id,
+        senderId: user?.id || 'host',
+      });
+    } else if (socketRef.current && isConnected) {
+      socketRef.current.emit('host_play', {
+        roomId: activeRoomId,
+        trackId: currentTrack.id,
+        currentTime: Math.round(currentTime),
+      });
+    }
+
     setMessages((prev) => [
       ...prev,
       {
@@ -223,6 +303,7 @@ export const SocialRoomView: React.FC = () => {
       },
     ]);
   };
+
 
   const handleCreateNewRoom = async () => {
     if (!newRoomName.trim()) return;

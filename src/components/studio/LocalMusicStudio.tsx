@@ -14,7 +14,9 @@ import {
   Cloud,
   CheckCircle2,
   Loader2,
+  HardDrive,
 } from 'lucide-react';
+import { useCapability } from '../../hooks/usePlatform';
 
 export const LocalMusicStudio: React.FC = () => {
   const localTracks = useLibraryStore((state) => state.localTracks);
@@ -22,6 +24,10 @@ export const LocalMusicStudio: React.FC = () => {
   const removeLocalTrack = useLibraryStore((state) => state.removeLocalTrack);
   const uploadTrackToCloud = useLibraryStore((state) => state.uploadTrackToCloud);
   const isLoading = useLibraryStore((state) => state.isLoading);
+
+  const canImportLocal = useCapability('localMusicImport');
+  const hasDirectFsAccess = useCapability('filesystemAccess');
+  const hasOfflineStorage = useCapability('offlineStorage');
 
   const playTrack = useAudioStore((state) => state.playTrack);
 
@@ -140,43 +146,59 @@ export const LocalMusicStudio: React.FC = () => {
       </div>
 
       {/* Drag & Drop Import Dropzone */}
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-        className={`p-10 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-4 cursor-pointer transition-all duration-300 text-center ${
-          isDragging
-            ? 'border-aura-cyan bg-aura-cyan/10 scale-102 shadow-glow-cyan/30'
-            : 'border-white/15 bg-aura-card/60 hover:border-aura-cyan/40 hover:bg-aura-surface/60'
-        }`}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="audio/*,.mp3,.wav,.ogg,.flac,.m4a,.aac"
-          onChange={handleFileChange}
-          className="hidden"
-        />
+      {canImportLocal ? (
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`p-10 rounded-3xl border-2 border-dashed flex flex-col items-center justify-center gap-4 cursor-pointer transition-all duration-300 text-center ${
+            isDragging
+              ? 'border-aura-cyan bg-aura-cyan/10 scale-102 shadow-glow-cyan/30'
+              : 'border-white/15 bg-aura-card/60 hover:border-aura-cyan/40 hover:bg-aura-surface/60'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="audio/*,.mp3,.wav,.ogg,.flac,.m4a,.aac"
+            onChange={handleFileChange}
+            className="hidden"
+          />
 
-        <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-aura-cyan/20 to-aura-violet/20 border border-aura-cyan/30 flex items-center justify-center text-aura-cyan shadow-glow-cyan/20">
-          <UploadCloud className="w-8 h-8 animate-bounce" />
+          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-aura-cyan/20 to-aura-violet/20 border border-aura-cyan/30 flex items-center justify-center text-aura-cyan shadow-glow-cyan/20">
+            <UploadCloud className="w-8 h-8 animate-bounce" />
+          </div>
+
+          <div>
+            <h3 className="text-base font-bold text-white">
+              Drag and drop your audio files here, or click to browse
+            </h3>
+            <p className="text-xs text-aura-muted mt-1">
+              Supports MP3, WAV, FLAC, OGG, and M4A with ID3v2 metadata & embedded artwork extraction
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-2 text-[10px] font-mono">
+            <span className="text-aura-cyan bg-aura-cyan/10 px-3 py-1 rounded-full border border-aura-cyan/20 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" /> ID3v2 & Lossless Extraction
+            </span>
+            <span className="text-aura-amber bg-aura-amber/10 px-3 py-1 rounded-full border border-aura-amber/20 flex items-center gap-1.5">
+              <HardDrive className="w-3.5 h-3.5" />
+              {hasDirectFsAccess ? 'Direct Native Filesystem' : hasOfflineStorage ? 'Encrypted IndexedDB' : 'Ephemeral Memory'}
+            </span>
+          </div>
         </div>
-
-        <div>
-          <h3 className="text-base font-bold text-white">
-            Drag and drop your audio files here, or click to browse
-          </h3>
-          <p className="text-xs text-aura-muted mt-1">
-            Supports MP3, WAV, FLAC, OGG, and M4A with ID3v2 metadata & embedded artwork extraction
+      ) : (
+        <div className="p-10 rounded-3xl bg-white/5 border border-white/10 text-center flex flex-col items-center justify-center gap-3 text-aura-muted">
+          <ShieldAlert className="w-10 h-10 text-amber-400" />
+          <h3 className="text-base font-bold text-white">Local Audio Ingestion Unavailable</h3>
+          <p className="text-xs max-w-md">
+            Direct local audio decoding is disabled by policy or not supported in this runtime.
           </p>
         </div>
-
-        <div className="flex items-center gap-2 text-[10px] font-mono text-aura-cyan bg-aura-cyan/10 px-3 py-1 rounded-full border border-aura-cyan/20">
-          <Sparkles className="w-3.5 h-3.5" /> Client-Side ID3v2 Decoding • Instant IndexedDB Caching
-        </div>
-      </div>
+      )}
 
       {/* Imported Audio List */}
       <div className="flex flex-col gap-3">

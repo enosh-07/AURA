@@ -60,34 +60,47 @@ export const isTauri = isDesktop;
 // ---------------------------------------------------------------------------
 
 export interface PlatformCapabilities {
-  /** Playback continues when app moves to background / screen locks */
-  audioBackgroundPlayback: boolean;
-  /** Access to device local filesystem */
-  localFileAccess: boolean;
-  /** Persistent key-value / binary offline storage */
+  // --- 11 Canonical Core Capabilities (Phase 13.2) ---
+  /** Background audio playback without app suspension */
+  backgroundPlayback: boolean;
+  /** Persistent key-value or binary offline storage (IndexedDB, AppData, or native FS) */
   offlineStorage: boolean;
-  /** OS-level push / local notifications */
+  /** OS-level push or local notifications */
   nativeNotifications: boolean;
-  /** Browser / OS media session (lock screen, notification controls) */
-  mediaSession: boolean;
-  /** Read/write arbitrary filesystem paths */
+  /** Media keys, lock screen & System Media Transport Controls (SMTC / MPRIS / MediaSession) */
+  mediaControls: boolean;
+  /** Direct native filesystem read/write access */
   filesystemAccess: boolean;
-  /** Track download management with progress */
-  downloadManager: boolean;
+  /** Native package and track download management */
+  nativeDownloads: boolean;
+  /** aura:// deep link protocol routing */
+  deepLinks: boolean;
   /** Native OS share sheet */
   nativeShare: boolean;
-  /** Bluetooth audio device management */
+  /** Bluetooth audio device management / routing */
   bluetoothAudio: boolean;
-  /** OS system media transport controls */
+  /** Spatial audio / 3D stereo panning engine */
+  spatialAudio: boolean;
+  /** Local audio file ingestion & tag parsing */
+  localMusicImport: boolean;
+
+  // --- Extended / Legacy Compatibility Aliases ---
+  /** Legacy alias for backgroundPlayback */
+  audioBackgroundPlayback: boolean;
+  /** Legacy alias for localMusicImport */
+  localFileAccess: boolean;
+  /** Legacy alias for mediaControls */
+  mediaSession: boolean;
+  /** Legacy alias for nativeDownloads */
+  downloadManager: boolean;
+  /** Legacy alias for mediaControls */
   systemMediaControls: boolean;
   /** 10-band EQ via Web Audio */
   equalizer: boolean;
   /** Canvas-based audio visualizer */
   visualizer: boolean;
-  /** FLAC / lossless streaming */
+  /** Lossless audio decoding & telemetry */
   losslessPlayback: boolean;
-  /** aura:// deep link handling */
-  deepLinks: boolean;
   /** Push notifications */
   pushNotifications: boolean;
   /** File picker dialog */
@@ -96,79 +109,113 @@ export interface PlatformCapabilities {
   autoUpdate: boolean;
   /** System tray integration */
   systemTray: boolean;
-  /** Keyboard shortcuts */
+  /** Global or window keyboard shortcuts */
   keyboardShortcuts: boolean;
 }
+
+export type PlatformCapabilityKey = keyof PlatformCapabilities;
 
 function buildCapabilities(): PlatformCapabilities {
   const hasMediaSession = typeof navigator !== 'undefined' && 'mediaSession' in navigator;
   const hasWebAudio =
     typeof window !== 'undefined' &&
     (!!window.AudioContext || !!(window as any).webkitAudioContext);
+  const hasSpatialAudio =
+    hasWebAudio &&
+    typeof window !== 'undefined' &&
+    (typeof StereoPannerNode !== 'undefined' ||
+      (typeof AudioContext !== 'undefined' && 'createStereoPanner' in AudioContext.prototype) ||
+      (typeof AudioContext !== 'undefined' && 'createPanner' in AudioContext.prototype));
+  const hasNativeShare = typeof navigator !== 'undefined' && 'share' in navigator;
+  const hasWindowNotifications = typeof window !== 'undefined' && 'Notification' in window;
 
   switch (PLATFORM) {
     case 'android':
       return {
-        audioBackgroundPlayback: true,
-        localFileAccess: true,
+        // 11 Core Capabilities
+        backgroundPlayback: true,
         offlineStorage: true,
         nativeNotifications: true,
-        mediaSession: true,
+        mediaControls: true,
         filesystemAccess: true,
-        downloadManager: true,
+        nativeDownloads: true,
+        deepLinks: true,
         nativeShare: true,
         bluetoothAudio: true,
+        spatialAudio: hasSpatialAudio,
+        localMusicImport: true,
+
+        // Legacy / Extended
+        audioBackgroundPlayback: true,
+        localFileAccess: true,
+        mediaSession: true,
+        downloadManager: true,
         systemMediaControls: true,
         equalizer: hasWebAudio,
         visualizer: hasWebAudio,
         losslessPlayback: true,
-        deepLinks: true,
         pushNotifications: true,
         filePicker: true,
-        autoUpdate: false, // Google Play handles updates
+        autoUpdate: false, // Managed via store
         systemTray: false,
         keyboardShortcuts: false,
       };
 
     case 'ios':
       return {
-        audioBackgroundPlayback: true,
-        localFileAccess: true,
+        // 11 Core Capabilities
+        backgroundPlayback: true,
         offlineStorage: true,
         nativeNotifications: true,
-        mediaSession: true,
+        mediaControls: true,
         filesystemAccess: true,
-        downloadManager: true,
+        nativeDownloads: true,
+        deepLinks: true,
         nativeShare: true,
         bluetoothAudio: true,
+        spatialAudio: hasSpatialAudio,
+        localMusicImport: true,
+
+        // Legacy / Extended
+        audioBackgroundPlayback: true,
+        localFileAccess: true,
+        mediaSession: true,
+        downloadManager: true,
         systemMediaControls: true,
         equalizer: hasWebAudio,
         visualizer: hasWebAudio,
         losslessPlayback: true,
-        deepLinks: true,
         pushNotifications: true,
         filePicker: true,
-        autoUpdate: false, // App Store handles updates
+        autoUpdate: false,
         systemTray: false,
         keyboardShortcuts: false,
       };
 
     case 'windows':
       return {
-        audioBackgroundPlayback: true,
-        localFileAccess: true,
+        // 11 Core Capabilities
+        backgroundPlayback: true,
         offlineStorage: true,
         nativeNotifications: true,
-        mediaSession: hasMediaSession,
+        mediaControls: true,
         filesystemAccess: true,
+        nativeDownloads: true,
+        deepLinks: true,
+        nativeShare: hasNativeShare || true,
+        bluetoothAudio: false, // Managed transparently by Windows audio driver
+        spatialAudio: hasSpatialAudio,
+        localMusicImport: true,
+
+        // Legacy / Extended
+        audioBackgroundPlayback: true,
+        localFileAccess: true,
+        mediaSession: hasMediaSession,
         downloadManager: true,
-        nativeShare: true,
-        bluetoothAudio: false,
         systemMediaControls: true, // Windows SMTC
         equalizer: hasWebAudio,
         visualizer: hasWebAudio,
         losslessPlayback: true,
-        deepLinks: true,
         pushNotifications: true,
         filePicker: true,
         autoUpdate: true,
@@ -178,20 +225,28 @@ function buildCapabilities(): PlatformCapabilities {
 
     case 'macos':
       return {
-        audioBackgroundPlayback: true,
-        localFileAccess: true,
+        // 11 Core Capabilities
+        backgroundPlayback: true,
         offlineStorage: true,
         nativeNotifications: true,
-        mediaSession: hasMediaSession,
+        mediaControls: true,
         filesystemAccess: true,
-        downloadManager: true,
-        nativeShare: true,
+        nativeDownloads: true,
+        deepLinks: true,
+        nativeShare: hasNativeShare || true,
         bluetoothAudio: false,
+        spatialAudio: hasSpatialAudio,
+        localMusicImport: true,
+
+        // Legacy / Extended
+        audioBackgroundPlayback: true,
+        localFileAccess: true,
+        mediaSession: hasMediaSession,
+        downloadManager: true,
         systemMediaControls: true,
         equalizer: hasWebAudio,
         visualizer: hasWebAudio,
         losslessPlayback: true,
-        deepLinks: true,
         pushNotifications: true,
         filePicker: true,
         autoUpdate: true,
@@ -201,20 +256,28 @@ function buildCapabilities(): PlatformCapabilities {
 
     case 'linux':
       return {
-        audioBackgroundPlayback: true,
-        localFileAccess: true,
+        // 11 Core Capabilities
+        backgroundPlayback: true,
         offlineStorage: true,
         nativeNotifications: true,
-        mediaSession: hasMediaSession,
+        mediaControls: hasMediaSession,
         filesystemAccess: true,
-        downloadManager: true,
+        nativeDownloads: true,
+        deepLinks: true,
         nativeShare: false,
         bluetoothAudio: false,
+        spatialAudio: hasSpatialAudio,
+        localMusicImport: true,
+
+        // Legacy / Extended
+        audioBackgroundPlayback: true,
+        localFileAccess: true,
+        mediaSession: hasMediaSession,
+        downloadManager: true,
         systemMediaControls: hasMediaSession,
         equalizer: hasWebAudio,
         visualizer: hasWebAudio,
         losslessPlayback: true,
-        deepLinks: true,
         pushNotifications: false,
         filePicker: true,
         autoUpdate: true,
@@ -224,30 +287,45 @@ function buildCapabilities(): PlatformCapabilities {
 
     default: // web
       return {
-        audioBackgroundPlayback: hasMediaSession, // partial via Media Session
-        localFileAccess: false,
-        offlineStorage: true, // IndexedDB
-        nativeNotifications: false,
-        mediaSession: hasMediaSession,
+        // 11 Core Capabilities
+        backgroundPlayback: hasMediaSession,
+        offlineStorage: true, // IndexedDB persistent key-value/blob storage
+        nativeNotifications: hasWindowNotifications,
+        mediaControls: hasMediaSession,
         filesystemAccess: false,
-        downloadManager: false,
-        nativeShare: false,
+        nativeDownloads: false, // Web uses offlineStorage (IndexedDB), not direct filesystem
+        deepLinks: false,
+        nativeShare: hasNativeShare,
         bluetoothAudio: false,
+        spatialAudio: hasSpatialAudio,
+        localMusicImport: true, // File input & Drag/Drop
+
+        // Legacy / Extended
+        audioBackgroundPlayback: hasMediaSession,
+        localFileAccess: false,
+        mediaSession: hasMediaSession,
+        downloadManager: false,
         systemMediaControls: hasMediaSession,
         equalizer: hasWebAudio,
         visualizer: hasWebAudio,
         losslessPlayback: true,
-        deepLinks: false,
         pushNotifications: false,
         filePicker: false,
         autoUpdate: false,
         systemTray: false,
-        keyboardShortcuts: true, // keyboard events in browser
+        keyboardShortcuts: true,
       };
   }
 }
 
 export const capabilities: PlatformCapabilities = buildCapabilities();
+
+/**
+ * Checks if a specific platform capability is enabled in the current runtime.
+ */
+export function hasCapability(cap: PlatformCapabilityKey): boolean {
+  return !!capabilities[cap];
+}
 
 // ---------------------------------------------------------------------------
 // App Version

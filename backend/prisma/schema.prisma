@@ -127,6 +127,7 @@ model Track {
   variants       AudioVariant[]
   downloads      Download[]
   recommendations Recommendation[]
+  audioProfile   AudioProfile?
 }
 
 model AudioVariant {
@@ -152,6 +153,70 @@ model AudioVariant {
 
   @@index([trackId])
   @@index([qualityTier])
+}
+
+model AudioProfile {
+  id                 String   @id @default(uuid())
+  trackId            String   @unique
+  track              Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  // Temporal & Rhythmic Features
+  bpm                Float?
+  bpmConfidence      Float?   // 0.0 - 1.0
+  danceability       Float?   // 0.0 - 1.0
+
+  // Harmonic & Tonal Features
+  musicalKey         String?  // e.g. "C", "Am", "F#m"
+  keyConfidence      Float?   // 0.0 - 1.0
+  camelotKey         String?  // e.g. "8B", "8A", "11B"
+  scale              String?  // "major" | "minor"
+
+  // Loudness & Dynamics (EBU R128)
+  integratedLoudness Float?   // LUFS (e.g. -14.2)
+  loudnessRange      Float?   // LU
+  truePeak           Float?   // dBFS
+  dynamicRange       Float?   // dB
+
+  // Perceptual & Psychoacoustic Features (0.0 - 1.0)
+  energy             Float?   // 0.0 - 1.0
+  valence            Float?   // 0.0 - 1.0
+  acousticness       Float?   // 0.0 - 1.0
+  instrumentalness   Float?   // 0.0 - 1.0
+  speechRatio        Float?   // 0.0 - 1.0
+
+  // Spectral Analysis
+  spectralCentroid   Float?   // Hz (brightness)
+  spectralRolloff    Float?   // Hz
+  spectralFlatness   Float?   // 0.0 - 1.0
+  spectralSpread     Float?   // Hz
+  spectralFeatures   String?  // JSON stringified detailed spectral metrics
+
+  // Classification & Mood
+  primaryMood        String?
+  secondaryMood      String?
+  detectedGenre      String?
+  genreConfidence    Float?
+
+  // Fingerprint & Acoustic Identity
+  fingerprint        String?  // Compact perceptual audio fingerprint hash
+  fingerprintRaw     String?  // Sub-fingerprint stream
+  durationMs         Int?
+
+  // Pipeline Processing Metadata
+  analyzedAt         DateTime @default(now())
+  analyzerVersion    String   @default("1.0.0")
+  analysisSource     String   @default("AUDIO_PIPELINE")
+  isComplete         Boolean  @default(false)
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([trackId])
+  @@index([fingerprint])
+  @@index([bpm])
+  @@index([musicalKey])
+  @@index([camelotKey])
+  @@index([energy])
 }
 
 // ============================================================

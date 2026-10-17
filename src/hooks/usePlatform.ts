@@ -13,7 +13,9 @@ import {
   PLATFORM,
   PlatformId,
   PlatformCapabilities,
+  PlatformCapabilityKey,
   capabilities,
+  hasCapability,
   isWeb,
   isMobile,
   isDesktop,
@@ -33,6 +35,7 @@ import {
 export interface PlatformContext {
   platform: PlatformId;
   capabilities: PlatformCapabilities;
+  hasCapability: (cap: PlatformCapabilityKey) => boolean;
   isWeb: boolean;
   isMobile: boolean;
   isDesktop: boolean;
@@ -70,6 +73,7 @@ export function usePlatform(): PlatformContext {
   return {
     platform: PLATFORM,
     capabilities,
+    hasCapability,
     isWeb,
     isMobile,
     isDesktop,
@@ -86,13 +90,20 @@ export function usePlatform(): PlatformContext {
 }
 
 /**
+ * Returns reactive record of all platform capabilities.
+ */
+export function useCapabilities(): PlatformCapabilities {
+  return capabilities;
+}
+
+/**
  * Returns true if a specific platform capability is available.
- * Use this to conditionally render platform-specific features.
+ * Use this to conditionally render platform-specific features or degrade gracefully.
  *
  * Example:
- *   const canDownload = useCapability('downloadManager');
+ *   const canDownload = useCapability('nativeDownloads');
  *   if (canDownload) <DownloadButton />
  */
-export function useCapability(cap: keyof PlatformCapabilities): boolean {
+export function useCapability(cap: PlatformCapabilityKey): boolean {
   return capabilities[cap];
 }

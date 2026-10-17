@@ -52,7 +52,8 @@ export const addTrackToPlaylist = async (req: AuthRequest, res: Response, next: 
     const result = await playlistService.addTrackToPlaylist(
       req.user!.id,
       req.params.id as string,
-      req.body.trackId
+      req.body.trackId,
+      req.body
     );
     res.status(200).json({ success: true, data: result });
   } catch (err) {

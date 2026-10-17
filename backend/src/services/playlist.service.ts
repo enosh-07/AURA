@@ -165,7 +165,7 @@ export class PlaylistService {
     return { success: true };
   }
 
-  async addTrackToPlaylist(userId: string, playlistId: string, trackId: string) {
+  async addTrackToPlaylist(userId: string, playlistId: string, trackId: string, trackMeta?: any) {
     await this.requireOwnerOrEditor(playlistId, userId);
 
     const playlist = await prisma.playlist.findUnique({
@@ -175,6 +175,25 @@ export class PlaylistService {
     if (!playlist) throw new Error('Playlist not found.');
 
     const maxPos = playlist.tracks.reduce((max, t) => Math.max(max, t.position), -1);
+
+    // Ensure track exists in database (especially for online tracks from JioSaavn/iTunes)
+    const existingTrack = await prisma.track.findUnique({ where: { id: trackId } });
+    if (!existingTrack) {
+      await prisma.track.create({
+        data: {
+          id: trackId,
+          title: trackMeta?.title || (trackId.startsWith('saavn_') || trackId.startsWith('itunes_') ? 'Online Stream' : 'AURA Track'),
+          artist: trackMeta?.artist || 'Online Artist',
+          album: trackMeta?.album || 'Single',
+          duration: trackMeta?.duration ? Number(trackMeta.duration) : 180,
+          genre: trackMeta?.genre || 'Soundtrack',
+          artworkUrl: trackMeta?.artworkUrl || 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=800',
+          audioFileUrl: trackMeta?.streamUrl || `/api/v1/tracks/online/${trackId}/stream`,
+          sourceType: 'ONLINE_CATALOG',
+          qualityTier: 'HIGH',
+        },
+      });
+    }
 
     const pt = await prisma.playlistTrack.upsert({
       where: { playlistId_trackId: { playlistId, trackId } },

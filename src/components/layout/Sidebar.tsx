@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useUIStore, MainView } from '../../stores/useUIStore';
 import { useLibraryStore } from '../../stores/useLibraryStore';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { UserAvatar } from '../common/UserAvatar';
 import {
   Home,
   Search,
@@ -17,36 +18,9 @@ import {
   Sliders,
   ChevronLeft,
   ChevronRight,
+  LogOut,
+  User as UserIcon,
 } from 'lucide-react';
-
-interface SidebarPlaylist {
-  id: string;
-  name: string;
-  artwork: string;
-}
-
-const DEFAULT_PLAYLISTS: SidebarPlaylist[] = [
-  {
-    id: 'pl-late-night',
-    name: 'Late Night Drive',
-    artwork: 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=100&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'pl-acoustic',
-    name: 'Acoustic Mornings',
-    artwork: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=100&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'pl-heartbreak',
-    name: 'Heartbreak Diaries',
-    artwork: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=100&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'pl-good-vibes',
-    name: 'Good Vibes',
-    artwork: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=100&auto=format&fit=crop&q=80',
-  },
-];
 
 export const Sidebar: React.FC = () => {
   const activeView = useUIStore((state) => state.activeView);
@@ -57,7 +31,8 @@ export const Sidebar: React.FC = () => {
 
   const playlists = useLibraryStore((state) => state.playlists);
   const createPlaylist = useLibraryStore((state) => state.createPlaylist);
-  const { user, isAuthenticated, setAuthModalOpen } = useAuthStore();
+  const { user, isAuthenticated, setAuthModalOpen, logout } = useAuthStore();
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
 
   const navItems = [
     { id: 'home' as MainView, label: 'Home', icon: Home },
@@ -159,66 +134,127 @@ export const Sidebar: React.FC = () => {
           </div>
 
           <div className="flex flex-col gap-1">
-            {DEFAULT_PLAYLISTS.map((pl) => (
-              <div
-                key={pl.id}
-                onClick={() => setActiveView('playlist', pl.id)}
-                className="flex items-center gap-3 p-1.5 rounded-xl hover:bg-white/[0.04] cursor-pointer group transition-all"
-              >
-                <div className="w-9 h-9 rounded-lg overflow-hidden bg-[#1a1816] flex-shrink-0 shadow">
-                  <img src={pl.artwork} alt={pl.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+            {playlists.length > 0 ? (
+              playlists.map((pl) => (
+                <div
+                  key={pl.id}
+                  onClick={() => setActiveView('playlist', pl.id)}
+                  className="flex items-center gap-3 p-1.5 rounded-xl hover:bg-white/[0.04] cursor-pointer group transition-all"
+                >
+                  <div className="w-8 h-8 rounded-lg overflow-hidden bg-[#1a1816] flex items-center justify-center flex-shrink-0 text-[#8f867e] group-hover:text-[#f3c5a6] border border-white/[0.06]">
+                    {pl.coverUrl ? (
+                      <img src={pl.coverUrl} alt={pl.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                    ) : (
+                      <Disc className="w-4 h-4" />
+                    )}
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs font-medium text-[#c4b9af] group-hover:text-white truncate">
+                      {pl.title}
+                    </span>
+                    <span className="text-[10px] text-[#6e665f] font-mono">
+                      {pl.trackIds.length} {pl.trackIds.length === 1 ? 'track' : 'tracks'}
+                    </span>
+                  </div>
                 </div>
-                <span className="text-xs font-medium text-[#c4b9af] group-hover:text-white truncate">
-                  {pl.name}
-                </span>
+              ))
+            ) : (
+              <div className="px-3 py-3.5 rounded-xl bg-white/[0.02] border border-dashed border-white/[0.06] flex flex-col items-center justify-center text-center gap-1.5 my-1">
+                <Disc className="w-4 h-4 text-[#6e665f]" />
+                <span className="text-[11px] text-[#8f867e]">No custom playlists yet</span>
+                <button
+                  onClick={handleCreatePlaylist}
+                  className="text-[10px] font-semibold text-[#f3c5a6] hover:underline"
+                >
+                  + Create your first
+                </button>
               </div>
-            ))}
-
-            {playlists.slice(0, 3).map((pl) => (
-              <div
-                key={pl.id}
-                onClick={() => setActiveView('playlist', pl.id)}
-                className="flex items-center gap-3 p-1.5 rounded-xl hover:bg-white/[0.04] cursor-pointer group transition-all"
-              >
-                <div className="w-9 h-9 rounded-lg overflow-hidden bg-[#1a1816] flex items-center justify-center flex-shrink-0 text-[#8f867e] group-hover:text-[#f3c5a6] border border-white/[0.06]">
-                  <Disc className="w-4 h-4" />
-                </div>
-                <span className="text-xs font-medium text-[#c4b9af] group-hover:text-white truncate">
-                  {pl.title}
-                </span>
-              </div>
-            ))}
+            )}
           </div>
         </div>
       )}
 
-      {/* Bottom Profile Footer: Avatar + Username */}
-      <div className="p-4 mt-auto border-t border-white/[0.06]">
+      {/* Bottom Profile Footer: Real User Identity / Guest Account */}
+      <div className="p-4 mt-auto border-t border-white/[0.06] relative">
         <div
-          onClick={() => (!isAuthenticated ? setAuthModalOpen(true) : null)}
+          onClick={() => {
+            if (!isAuthenticated) {
+              setAuthModalOpen(true, 'login');
+            } else {
+              setShowAccountMenu((prev) => !prev);
+            }
+          }}
           className={`flex items-center gap-3 p-1.5 rounded-2xl hover:bg-white/[0.04] cursor-pointer transition-colors ${
             isSidebarCollapsed ? 'justify-center' : ''
           }`}
+          title={isAuthenticated ? (user?.name || user?.email || 'Account') : 'Sign in to AURA'}
         >
-          <div className="w-8 h-8 rounded-full overflow-hidden bg-[#1f1d1b] border border-white/10 flex-shrink-0">
-            <img
-              src={
-                user?.avatarUrl ||
-                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'
-              }
-              alt="User"
-              className="w-full h-full object-cover"
-            />
-          </div>
+          <UserAvatar
+            avatarUrl={user?.avatarUrl}
+            name={user?.name}
+            email={user?.email}
+            size="md"
+            isGuest={!isAuthenticated}
+          />
           {!isSidebarCollapsed && (
             <div className="flex items-center justify-between flex-1 min-w-0">
-              <span className="text-xs font-medium text-[#c4b9af] hover:text-white truncate">
-                {user?.name || 'madebyadah'}
-              </span>
-              <ChevronDown className="w-3.5 h-3.5 text-[#6e665f]" />
+              <div className="flex flex-col min-w-0 pr-1">
+                <span className="text-xs font-medium text-[#c4b9af] hover:text-white truncate">
+                  {isAuthenticated
+                    ? user?.name || user?.email?.split('@')[0] || 'AURA Listener'
+                    : 'Guest Listener'}
+                </span>
+                <span className="text-[10px] text-[#8f867e] truncate">
+                  {isAuthenticated ? (user?.email || 'Synced Library') : 'Tap to sign in'}
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-[#6e665f] transition-transform ${
+                  showAccountMenu ? 'rotate-180' : ''
+                }`}
+              />
             </div>
           )}
         </div>
+
+        {/* Authenticated User Account Popover */}
+        {isAuthenticated && showAccountMenu && (
+          <div className="absolute bottom-full left-4 right-4 mb-2 p-3 rounded-2xl bg-[#12131a] border border-white/10 shadow-2xl backdrop-blur-2xl z-50 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-2.5 pb-2.5 border-b border-white/10 mb-2">
+              <UserAvatar
+                avatarUrl={user?.avatarUrl}
+                name={user?.name}
+                email={user?.email}
+                size="sm"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-white truncate">
+                  {user?.name || user?.email?.split('@')[0] || 'AURA Member'}
+                </p>
+                <p className="text-[10px] text-white/50 truncate font-mono">{user?.email}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between py-1 px-1.5 text-[10px] text-emerald-400 font-mono mb-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Cloud Library Active</span>
+              </span>
+              <span className="text-white/40">Sync ON</span>
+            </div>
+
+            <button
+              onClick={() => {
+                logout();
+                setShowAccountMenu(false);
+              }}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs font-medium transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign Out of AURA</span>
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );

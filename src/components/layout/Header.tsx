@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useUIStore } from '../../stores/useUIStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { apiClient } from '../../services/apiClient';
+import { UserAvatar } from '../common/UserAvatar';
 import {
   Search,
   ChevronLeft,
@@ -143,10 +144,11 @@ export const Header: React.FC = () => {
                 className="flex items-center gap-2 p-1 pl-1.5 pr-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
               >
                 <div className="relative">
-                  <img
-                    src={user.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100'}
-                    alt={user.name}
-                    className="w-6 h-6 rounded-full object-cover ring-1 ring-aura-cyan"
+                  <UserAvatar
+                    avatarUrl={user.avatarUrl}
+                    name={user.name}
+                    email={user.email}
+                    size="xs"
                   />
                   <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#0a0908] animate-pulse" />
                 </div>

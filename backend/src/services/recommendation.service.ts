@@ -13,6 +13,8 @@
  */
 
 import { prisma } from './prisma.js';
+import { analyticsService } from './analytics.service.js';
+import { onlineMusicService } from './onlineMusic.service.js';
 
 export type MixType = 'discover' | 'favorites' | 'chill' | 'energy' | 'focus' | 'new';
 
@@ -427,8 +429,155 @@ export class RecommendationService {
 
   private checkKeyCompatibility(keyA: string | null | undefined, keyB: string | null | undefined): boolean {
     if (!keyA || !keyB) return false;
-    // Simple camelot wheel compatibility check
-    return keyA === keyB; // expand with camelot logic if needed
+    if (keyA === keyB) return true;
+
+    // Camelot Wheel harmonic mixing rules
+    const matchA = keyA.match(/^(\d{1,2})([AB])$/i);
+    const matchB = keyB.match(/^(\d{1,2})([AB])$/i);
+
+    if (matchA && matchB) {
+      const numA = parseInt(matchA[1], 10);
+      const letterA = matchA[2].toUpperCase();
+      const numB = parseInt(matchB[1], 10);
+      const letterB = matchB[2].toUpperCase();
+
+      // Rule 1: Relative major/minor switch (e.g. 8A <-> 8B)
+      if (numA === numB) return true;
+
+      // Rule 2: Adjacent keys on Camelot wheel (circular modulo 12: 12 <-> 1)
+      if (letterA === letterB) {
+        const diff = Math.abs(numA - numB);
+        if (diff === 1 || diff === 11) return true;
+      }
+    }
+
+    return false;
+  }
+
+  // ============================================================
+  // PERSONALIZED HOME DASHBOARD PIPELINE
+  // ============================================================
+
+  /**
+   * Generates a fully personalized Home feed based on genuine listening history.
+   * If user has no history or is anonymous, returns authentic provider-backed discovery
+   * without fabricated plays or mock songs.
+   */
+  async getPersonalizedHome(userId?: string) {
+    if (userId) {
+      const recentTracks = await analyticsService.getRecentlyPlayed(userId, 10);
+      const hasHistory = recentTracks.length > 0;
+
+      if (hasHistory) {
+        const [dailyMixes, discoverTracks, favoriteTracks, topArtists] = await Promise.all([
+          this.getDailyMixes(userId).catch(() => []),
+          this.getDiscoverMix(userId).catch(() => []),
+          this.rankTracksForMix(userId, 'favorites').catch(() => []),
+          analyticsService.getTopArtists(userId, 30).catch(() => []),
+        ]);
+
+        // Find seed track for "Because you listened to..."
+        let becauseYouListenedTo: any = null;
+        if (recentTracks.length > 0) {
+          const seedTrack = recentTracks[0];
+          try {
+            const similar = await this.getSimilarTracks(seedTrack.id, 6);
+            if (similar.length > 0) {
+              becauseYouListenedTo = {
+                seedTrack: {
+                  id: seedTrack.id,
+                  title: seedTrack.title,
+                  artist: seedTrack.artist,
+                  genre: seedTrack.genre,
+                  bpm: seedTrack.bpm,
+                  artwork: seedTrack.artworkUrl || seedTrack.artwork,
+                },
+                reason: `Inspired by your recent listening to "${seedTrack.title}" (${seedTrack.genre || 'Music'}${seedTrack.bpm ? ` • ${seedTrack.bpm} BPM` : ''})`,
+                tracks: similar,
+              };
+            }
+          } catch (_) {}
+        }
+
+        const madeForYou = favoriteTracks.length > 0 ? favoriteTracks.slice(0, 10) : recentTracks;
+
+        return {
+          isNewUser: false,
+          madeForYou,
+          recentlyPlayed: recentTracks,
+          dailyMixes,
+          becauseYouListenedTo,
+          discoverNew: discoverTracks.slice(0, 8),
+          topArtists,
+          favoriteSounds: favoriteTracks.slice(0, 8),
+        };
+      }
+    }
+
+    // New User / Anonymous First-Listen Discovery Experience
+    // Legitimate provider-backed trending + genre starter cards, NO fake history
+    const trending = await onlineMusicService.getTrending('All', 20).catch(() => []);
+    const localCatalog = await prisma.track.findMany({
+      take: 12,
+      orderBy: { playCount: 'desc' },
+      include: { variants: true },
+    });
+
+    const formattedCatalog = localCatalog.map((t) => ({
+      ...t,
+      audioUrl: `/api/v1/tracks/${t.id}/stream`,
+    }));
+
+    return {
+      isNewUser: true,
+      madeForYou: trending.slice(0, 10),
+      recentlyPlayed: [],
+      dailyMixes: [],
+      becauseYouListenedTo: null,
+      discoverNew: trending.slice(10, 20),
+      topArtists: [],
+      favoriteSounds: formattedCatalog,
+      trending,
+      curatedMixes: [
+        {
+          id: 'mix-chill',
+          title: 'Deep Ambient & Lo-Fi',
+          subtitle: 'Sub-bass drones & calm rhythms for unwinding',
+          genre: 'Lo-Fi',
+          artwork: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=600&auto=format&fit=crop&q=80',
+          query: 'lofi chill ambient study beats',
+        },
+        {
+          id: 'mix-energy',
+          title: 'Synthwave & High Octane',
+          subtitle: 'High-tempo driving frequencies',
+          genre: 'Synthwave',
+          artwork: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=600&auto=format&fit=crop&q=80',
+          query: 'synthwave cyberpunk retro electro',
+        },
+        {
+          id: 'mix-hits',
+          title: 'Global & Regional Anthems',
+          subtitle: 'Top charts & cinematic soundtracks',
+          genre: 'Soundtrack',
+          artwork: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&auto=format&fit=crop&q=80',
+          query: 'anirudh rahman weeknd hits',
+        },
+        {
+          id: 'mix-focus',
+          title: 'Quantum Equilibrium',
+          subtitle: 'Instrumental precision for deep work',
+          genre: 'Focus',
+          artwork: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?w=600&auto=format&fit=crop&q=80',
+          query: 'peaceful acoustic instrumental piano',
+        },
+      ],
+      welcomeBanner: {
+        title: 'Welcome to AURA',
+        subtitle: 'Start listening or upload your lossless collection to generate your personalized Daily Mixes.',
+        hasStartedListening: false,
+      },
+    };
   }
 
   // ============================================================

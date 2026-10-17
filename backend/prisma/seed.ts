@@ -144,7 +144,7 @@ const SAMPLE_TRACKS_SEED = [
     bpm: 108,
     mood: 'Travel',
     accentColor: '#10b981',
-    artworkUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&auto=format&fit=crop&q=80',
+    artworkUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80',
     audioFileUrl: 'https://cdn.pixabay.com/download/audio/2022/03/10/audio_c230e17d04.mp3?filename=relaxed-vlog-131746.mp3',
     lyricsLrc: `[00:00.00][Breeze, Windchimes & Shimmering Pads]
 [00:20.00]Morning breaks above the golden valley

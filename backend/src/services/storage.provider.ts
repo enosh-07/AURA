@@ -1,12 +1,19 @@
 /**
  * Storage Provider Abstraction
- * Supports: local filesystem (default), S3-compatible, Supabase Storage
+ * Supports: Cloudflare R2 (S3-compatible, production), Local filesystem (development)
  * Never expose provider credentials to the frontend.
  */
 
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl as getS3SignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ENV } from '../config/env.js';
 
 export interface UploadResult {
@@ -29,8 +36,16 @@ export interface StorageObject {
   mimeType: string;
 }
 
-export type StorageProviderType = 'local' | 's3' | 'supabase';
+export type StorageProviderType = 'local' | 'r2' | 's3' | 'supabase';
 export type StorageBucket = 'audio' | 'artwork';
+
+export interface PresignedUploadTicket {
+  uploadUrl: string;
+  objectKey: string;
+  bucket: StorageBucket;
+  publicUrl: string;
+  expiresInSeconds: number;
+}
 
 export interface IStorageProvider {
   upload(
@@ -42,6 +57,7 @@ export interface IStorageProvider {
   ): Promise<UploadResult>;
 
   getSignedUrl(bucket: StorageBucket, key: string, expiresInSeconds?: number): Promise<string>;
+  getPresignedUploadUrl(bucket: StorageBucket, key: string, mimeType: string, expiresInSeconds?: number): Promise<PresignedUploadTicket>;
   delete(bucket: StorageBucket, key: string): Promise<void>;
   getPublicUrl(bucket: StorageBucket, key: string): string;
 }
@@ -87,17 +103,33 @@ class LocalStorageProvider implements IStorageProvider {
       key,
       fileSize,
       mimeType,
+      publicUrl: this.getPublicUrl(bucket, key),
     };
   }
 
   async getSignedUrl(bucket: StorageBucket, key: string, _expiresInSeconds = 3600): Promise<string> {
-    // For local storage, signed URLs are just a token-protected endpoint
     const token = crypto
       .createHmac('sha256', ENV.JWT_ACCESS_SECRET)
       .update(`${bucket}:${key}`)
       .digest('hex')
       .slice(0, 16);
     return `${this.baseUrl}/${bucket}/${key}?token=${token}`;
+  }
+
+  async getPresignedUploadUrl(
+    bucket: StorageBucket,
+    key: string,
+    _mimeType: string,
+    expiresInSeconds = 900
+  ): Promise<PresignedUploadTicket> {
+    const publicUrl = this.getPublicUrl(bucket, key);
+    return {
+      uploadUrl: `/api/v1/storage/upload?bucket=${bucket}&key=${key}`,
+      objectKey: key,
+      bucket,
+      publicUrl,
+      expiresInSeconds,
+    };
   }
 
   async delete(bucket: StorageBucket, key: string): Promise<void> {
@@ -113,12 +145,41 @@ class LocalStorageProvider implements IStorageProvider {
 }
 
 // ============================================================
-// S3-COMPATIBLE PROVIDER STUB
-// Activate by setting STORAGE_PROVIDER=s3 in .env
-// Requires: S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY, S3_REGION, S3_BUCKET_AUDIO, S3_BUCKET_ARTWORK
+// CLOUDFLARE R2 / S3-COMPATIBLE STORAGE PROVIDER
 // ============================================================
 
-class S3StorageProvider implements IStorageProvider {
+class R2StorageProvider implements IStorageProvider {
+  private s3Client: S3Client;
+  private audioBucket: string;
+  private artworkBucket: string;
+  private publicDomain: string;
+
+  constructor() {
+    const endpoint =
+      ENV.R2_ENDPOINT ||
+      (ENV.R2_ACCOUNT_ID ? `https://${ENV.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : undefined);
+
+    const accessKeyId = ENV.R2_ACCESS_KEY_ID || ENV.S3_ACCESS_KEY;
+    const secretAccessKey = ENV.R2_SECRET_ACCESS_KEY || ENV.S3_SECRET_KEY;
+
+    this.audioBucket = ENV.R2_BUCKET_AUDIO || 'aura-audio';
+    this.artworkBucket = ENV.R2_BUCKET_ARTWORK || 'aura-artwork';
+    this.publicDomain = ENV.R2_PUBLIC_DOMAIN ? ENV.R2_PUBLIC_DOMAIN.replace(/\/$/, '') : '';
+
+    this.s3Client = new S3Client({
+      region: ENV.S3_REGION || 'auto',
+      endpoint,
+      credentials: {
+        accessKeyId: accessKeyId || '',
+        secretAccessKey: secretAccessKey || '',
+      },
+    });
+  }
+
+  private resolveBucketName(bucket: StorageBucket): string {
+    return bucket === 'audio' ? this.audioBucket : this.artworkBucket;
+  }
+
   async upload(
     bucket: StorageBucket,
     key: string,
@@ -126,20 +187,87 @@ class S3StorageProvider implements IStorageProvider {
     mimeType: string,
     fileSize: number
   ): Promise<UploadResult> {
-    // TODO: Integrate @aws-sdk/client-s3 when cloud credentials are provided
-    throw new Error('S3 provider not yet configured. Set STORAGE_PROVIDER=local or configure S3 credentials.');
+    const bucketName = this.resolveBucketName(bucket);
+    const cacheControl = bucket === 'artwork'
+      ? 'public, max-age=31536000, immutable'
+      : 'public, max-age=86400, stale-while-revalidate=604800';
+
+    await this.s3Client.send(
+      new PutObjectCommand({
+        Bucket: bucketName,
+        Key: key,
+        Body: buffer,
+        ContentType: mimeType,
+        ContentLength: fileSize,
+        CacheControl: cacheControl,
+      })
+    );
+
+    const publicUrl = this.getPublicUrl(bucket, key);
+
+    return {
+      id: key,
+      url: publicUrl,
+      provider: 'r2',
+      bucket: bucketName,
+      key,
+      fileSize,
+      mimeType,
+      publicUrl,
+    };
   }
 
-  async getSignedUrl(_bucket: StorageBucket, _key: string, _expiresInSeconds?: number): Promise<string> {
-    throw new Error('S3 provider not configured.');
+  async getSignedUrl(bucket: StorageBucket, key: string, expiresInSeconds = 3600): Promise<string> {
+    const bucketName = this.resolveBucketName(bucket);
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    });
+    return getS3SignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
   }
 
-  async delete(_bucket: StorageBucket, _key: string): Promise<void> {
-    throw new Error('S3 provider not configured.');
+  async getPresignedUploadUrl(
+    bucket: StorageBucket,
+    key: string,
+    mimeType: string,
+    expiresInSeconds = 900
+  ): Promise<PresignedUploadTicket> {
+    const bucketName = this.resolveBucketName(bucket);
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      ContentType: mimeType,
+    });
+
+    const uploadUrl = await getS3SignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
+    const publicUrl = this.getPublicUrl(bucket, key);
+
+    return {
+      uploadUrl,
+      objectKey: key,
+      bucket,
+      publicUrl,
+      expiresInSeconds,
+    };
   }
 
-  getPublicUrl(_bucket: StorageBucket, _key: string): string {
-    throw new Error('S3 provider not configured.');
+  async delete(bucket: StorageBucket, key: string): Promise<void> {
+    const bucketName = this.resolveBucketName(bucket);
+    await this.s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: bucketName,
+        Key: key,
+      })
+    );
+  }
+
+  getPublicUrl(bucket: StorageBucket, key: string): string {
+    const bucketName = this.resolveBucketName(bucket);
+    if (this.publicDomain) {
+      return `${this.publicDomain}/${bucketName}/${key}`;
+    }
+    // Fallback URL through API proxy if custom domain is not yet wired
+    return `/api/v1/storage/serve/${bucket}/${key}`;
   }
 }
 
@@ -148,20 +276,29 @@ class S3StorageProvider implements IStorageProvider {
 // ============================================================
 
 function createStorageProvider(): IStorageProvider {
-  const providerType = (process.env.STORAGE_PROVIDER || 'local') as StorageProviderType;
-  switch (providerType) {
-    case 's3':
-      return new S3StorageProvider();
-    case 'local':
-    default:
+  const providerType = (process.env.STORAGE_PROVIDER || 'local').toLowerCase() as StorageProviderType;
+
+  if (providerType === 'r2' || providerType === 's3') {
+    const hasKeys = Boolean(
+      (ENV.R2_ACCESS_KEY_ID || ENV.S3_ACCESS_KEY) &&
+      (ENV.R2_SECRET_ACCESS_KEY || ENV.S3_SECRET_KEY)
+    );
+
+    if (hasKeys) {
+      return new R2StorageProvider();
+    } else {
+      console.warn('⚠️  STORAGE_PROVIDER is set to R2/S3, but credentials are missing. Falling back to local storage.');
       return new LocalStorageProvider();
+    }
   }
+
+  return new LocalStorageProvider();
 }
 
 export const storageProvider = createStorageProvider();
 
 // ============================================================
-// ALLOWED MIME TYPES
+// ALLOWED MIME TYPES & SIZE CONSTRAINTS
 // ============================================================
 
 export const ALLOWED_AUDIO_MIME = new Set([
@@ -186,3 +323,4 @@ export const ALLOWED_IMAGE_MIME = new Set([
 
 export const MAX_AUDIO_SIZE_BYTES = 200 * 1024 * 1024; // 200 MB
 export const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;  // 20 MB
+

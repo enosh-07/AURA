@@ -5,7 +5,19 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { GoogleAuthService } from '../../services/googleAuth';
 
 export const AuthModal: React.FC = () => {
-  const { isAuthModalOpen, authMode, setAuthModalOpen, login, register, googleLogin, isLoading, error, setError } = useAuthStore();
+  const {
+    isAuthModalOpen,
+    authMode,
+    setAuthModalOpen,
+    login,
+    register,
+    resetPassword,
+    googleLogin,
+    isLoading,
+    error,
+    setError,
+    notificationMessage,
+  } = useAuthStore();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -46,10 +58,13 @@ export const AuthModal: React.FC = () => {
     e.preventDefault();
     if (authMode === 'login') {
       await login(email, password);
-    } else {
+    } else if (authMode === 'register') {
       await register(name, email, password);
+    } else if (authMode === 'forgot_password') {
+      await resetPassword(email);
     }
   };
+
 
   /**
    * Triggers the real Google OAuth 2.0 Popup
@@ -265,6 +280,18 @@ export const AuthModal: React.FC = () => {
                 <div className="border-t border-white/10 w-full" />
               </div>
 
+              {/* Notification Message */}
+              {notificationMessage && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-4 p-3 rounded-xl bg-aura-cyan/10 border border-aura-cyan/30 text-aura-cyan text-xs flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                  <span>{notificationMessage}</span>
+                </motion.div>
+              )}
+
               {/* Error Message */}
               {error && (
                 <motion.div
@@ -272,6 +299,7 @@ export const AuthModal: React.FC = () => {
                   animate={{ opacity: 1, y: 0 }}
                   className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-2"
                 >
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   <span>{error}</span>
                 </motion.div>
               )}
@@ -310,20 +338,33 @@ export const AuthModal: React.FC = () => {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-mono uppercase text-white/60 mb-1.5">Password</label>
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-aura-cyan focus:ring-1 focus:ring-aura-cyan transition-all"
-                    />
+                {authMode !== 'forgot_password' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-mono uppercase text-white/60">Password</label>
+                      {authMode === 'login' && (
+                        <button
+                          type="button"
+                          onClick={() => setAuthModalOpen(true, 'forgot_password')}
+                          className="text-[11px] text-aura-cyan hover:underline"
+                        >
+                          Forgot password?
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                      <input
+                        type="password"
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder:text-white/30 focus:outline-none focus:border-aura-cyan focus:ring-1 focus:ring-aura-cyan transition-all"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <button
                   type="submit"
@@ -334,13 +375,15 @@ export const AuthModal: React.FC = () => {
                     <Loader2 className="w-4 h-4 animate-spin text-black" />
                   ) : authMode === 'login' ? (
                     'Sign In to AURA'
-                  ) : (
+                  ) : authMode === 'register' ? (
                     'Create Account'
+                  ) : (
+                    'Send Password Reset Link'
                   )}
                 </button>
               </form>
 
-              {/* Toggle Login / Register */}
+              {/* Toggle Login / Register / Forgot Password */}
               <div className="mt-5 text-center flex items-center justify-center gap-1.5 text-xs text-white/60">
                 {authMode === 'login' ? (
                   <>
@@ -353,7 +396,7 @@ export const AuthModal: React.FC = () => {
                       Create one
                     </button>
                   </>
-                ) : (
+                ) : authMode === 'register' ? (
                   <>
                     <span>Already have an account?</span>
                     <button
@@ -362,6 +405,17 @@ export const AuthModal: React.FC = () => {
                       className="text-aura-cyan font-semibold hover:underline"
                     >
                       Sign In
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span>Remember your password?</span>
+                    <button
+                      type="button"
+                      onClick={() => setAuthModalOpen(true, 'login')}
+                      className="text-aura-cyan font-semibold hover:underline"
+                    >
+                      Back to Sign In
                     </button>
                   </>
                 )}

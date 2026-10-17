@@ -13,6 +13,7 @@
 export {
   PLATFORM,
   capabilities,
+  hasCapability,
   isWeb,
   isAndroid,
   isIOS,
@@ -26,7 +27,7 @@ export {
   APP_VERSION,
 } from './platform';
 
-export type { PlatformId, PlatformCapabilities } from './platform';
+export type { PlatformId, PlatformCapabilities, PlatformCapabilityKey } from './platform';
 
 export { platformStorage, tokenStorage } from './storage';
 

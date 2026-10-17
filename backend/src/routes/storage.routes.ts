@@ -17,10 +17,16 @@ router.post('/upload', requireAuth, upload.single('file'), (req, res) =>
   storageController.upload(req as any, res)
 );
 
+// Presigned upload ticket endpoint — auth required
+router.post('/ticket', requireAuth, (req, res) =>
+  storageController.getPresignedTicket(req as any, res)
+);
+
 // Serve files — public (local provider)
 router.get('/serve/:bucket/:key', (req, res) =>
   storageController.serve(req, res)
 );
+
 
 // Delete — auth required
 router.delete('/:bucket/:key', requireAuth, (req, res) =>

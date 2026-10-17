@@ -1,8 +1,18 @@
 import { Router, Response } from 'express';
-import { requireAuth, AuthRequest } from '../middleware/auth.middleware.js';
+import { requireAuth, optionalAuth, AuthRequest } from '../middleware/auth.middleware.js';
 import { recommendationService } from '../services/recommendation.service.js';
 
 const router = Router();
+
+/** GET /api/v1/recommendations/home — personalized Home feed */
+router.get('/home', optionalAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const data = await recommendationService.getPersonalizedHome(req.user?.id);
+    res.json({ success: true, data });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
+});
 
 /** GET /api/v1/recommendations/daily — 6 personalized daily mixes */
 router.get('/daily', requireAuth, async (req: AuthRequest, res: Response) => {

@@ -14,28 +14,10 @@ interface AnalyticsState {
 }
 
 export const useAnalyticsStore = create<AnalyticsState>((set, get) => ({
-  totalMinutes: 142, // seeded with baseline listening
-  playCounts: {
-    'track-1': 14,
-    'track-2': 19,
-    'track-3': 8,
-    'track-4': 11,
-  },
-  genreCounts: {
-    'Lo-Fi': 19,
-    'Synthwave': 14,
-    'Electronic': 11,
-    'Ambient': 8,
-  },
-  dailyMinutes: {
-    '2026-09-14': 24,
-    '2026-09-15': 35,
-    '2026-09-16': 18,
-    '2026-09-17': 42,
-    '2026-09-18': 50,
-    '2026-09-19': 38,
-    '2026-09-20': 15,
-  },
+  totalMinutes: 0,
+  playCounts: {},
+  genreCounts: {},
+  dailyMinutes: {},
 
   loadHistory: async () => {
     try {

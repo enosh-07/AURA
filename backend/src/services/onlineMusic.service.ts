@@ -73,8 +73,8 @@ const LANGUAGE_SEARCH_TERMS: Record<string, string> = {
   Telugu: 'telugu hits pushpa thaman dsp',
   Punjabi: 'punjabi hits sidhu moosewala diljit',
   Malayalam: 'malayalam hits sushin shyam',
-  English: 'billboard hot hits the weeknd dua lipa',
-  All: 'top hits anirudh arijit weeknd tamil hindi english',
+  English: 'billboard hot hits the weeknd',
+  All: 'trending hits',
 };
 
 // JioSaavn DES cipher key for media URL decryption
@@ -419,8 +419,7 @@ export class OnlineMusicService {
               seenArtistNames.add(norm);
               const fallbackAvatar =
                 artistArtMap.get(artistName.toLowerCase()) ||
-                tracks[0]?.artwork ||
-                'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&auto=format&fit=crop&q=80';
+                this.extractArtwork(undefined, artistName, 'Artist', '#00f2fe');
 
               artists.push({
                 id: `itunes_artist_${item.artistId || '0'}__${encodeURIComponent(artistName)}`,
@@ -718,12 +717,10 @@ export class OnlineMusicService {
 
       const finalName = searchArtistName || targetName || 'Featured Artist';
 
-      // Pick highest quality avatar: official portrait > top track cover > album cover
+      // Pick highest quality avatar: verified artist portrait or clean branded SVG fallback
       const bestAvatar =
         officialAvatar ||
-        topTracks[0]?.artwork ||
-        albums[0]?.artwork ||
-        'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=600&auto=format&fit=crop&q=80';
+        this.extractArtwork(undefined, finalName, 'Artist', '#00f2fe');
 
       const finalGenre =
         artistInfo?.primaryGenreName ||
@@ -915,11 +912,22 @@ export class OnlineMusicService {
         return;
       }
 
-      // Propagate critical streaming headers
+      // Propagate critical streaming and audio telemetry headers
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length');
+      res.setHeader(
+        'Access-Control-Expose-Headers',
+        'Content-Range, Accept-Ranges, Content-Length, X-Audio-Codec, X-Audio-Container, X-Audio-Sample-Rate, X-Audio-Channels, X-Audio-Quality-Tier, X-Audio-Lossless, X-Audio-Bitrate'
+      );
       res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Content-Type', upstreamRes.headers.get('content-type') || 'audio/mp4');
+
+      res.setHeader('X-Audio-Codec', 'AAC');
+      res.setHeader('X-Audio-Container', 'M4A');
+      res.setHeader('X-Audio-Sample-Rate', '44100');
+      res.setHeader('X-Audio-Channels', '2');
+      res.setHeader('X-Audio-Quality-Tier', 'HIGH');
+      res.setHeader('X-Audio-Lossless', 'false');
+      res.setHeader('X-Audio-Bitrate', '320');
 
       const contentRange = upstreamRes.headers.get('content-range');
       if (contentRange) res.setHeader('Content-Range', contentRange);
@@ -952,6 +960,42 @@ export class OnlineMusicService {
     }
   }
 
+  public extractArtwork(
+    rawUrl: string | undefined,
+    title: string,
+    artist: string,
+    accentColor = '#00f2fe'
+  ): string {
+    if (rawUrl && typeof rawUrl === 'string' && rawUrl.trim().length > 0) {
+      let url = rawUrl.trim();
+      // Upgrade JioSaavn resolutions to 500x500
+      if (url.includes('saavncdn.com')) {
+        url = url
+          .replace(/_150x150\.(jpg|png|jpeg)/i, '_500x500.$1')
+          .replace(/150x150\.(jpg|png|jpeg)/i, '500x500.$1')
+          .replace(/_50x50\.(jpg|png|jpeg)/i, '_500x500.$1')
+          .replace(/50x50\.(jpg|png|jpeg)/i, '500x500.$1');
+      }
+      // Upgrade iTunes resolutions to 600x600
+      if (url.includes('mzstatic.com')) {
+        url = url
+          .replace(/100x100bb\.(jpg|png)/i, '600x600bb.$1')
+          .replace(/200x200bb\.(jpg|png)/i, '600x600bb.$1');
+      }
+      // Enforce secure HTTPS
+      if (url.startsWith('http://')) {
+        url = url.replace('http://', 'https://');
+      }
+      return url;
+    }
+
+    // Procedural neutral AURA SVG fallback (never duplicate another song's cover)
+    const cleanTitle = (title || 'Track').replace(/[<>&'"]/g, '');
+    const cleanArtist = (artist || 'Artist').replace(/[<>&'"]/g, '');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400"><rect width="400" height="400" rx="28" fill="#0d0e12"/><circle cx="200" cy="180" r="120" fill="none" stroke="#ffffff" stroke-opacity="0.05" stroke-width="2"/><circle cx="200" cy="180" r="80" fill="none" stroke="${accentColor}" stroke-opacity="0.15" stroke-width="2"/><circle cx="200" cy="180" r="16" fill="${accentColor}"/><text x="200" y="325" font-family="sans-serif" font-weight="700" font-size="22" fill="#ffffff" text-anchor="middle">${cleanTitle.slice(0, 20)}</text><text x="200" y="352" font-family="sans-serif" font-size="14" fill="#a09890" text-anchor="middle">${cleanArtist.slice(0, 24)}</text><text x="200" y="48" font-family="monospace" font-size="11" fill="${accentColor}" text-anchor="middle" letter-spacing="3">AURA SOUND</text></svg>`;
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }
+
   private mapSaavnTrack(song: any, defaultGenre?: string): OnlineTrack | null {
     if (!song || !song.id) return null;
 
@@ -976,7 +1020,7 @@ export class OnlineMusicService {
       }
     }
 
-    const artwork = (song.image || '').replace('150x150.jpg', '500x500.jpg');
+    const artwork = this.extractArtwork(song.image, title, artist, accentColor);
 
     return {
       id: `saavn_${song.id}`,
@@ -989,7 +1033,7 @@ export class OnlineMusicService {
       genre,
       bpm: 126,
       accentColor,
-      artwork: artwork || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800',
+      artwork,
       audioUrl: `/api/v1/tracks/online/saavn_${song.id}/stream`,
       playCount: song.play_count ? Number(song.play_count) : 450000,
       isOnline: true,
@@ -1000,12 +1044,14 @@ export class OnlineMusicService {
   private mapItunesTrack(item: any): OnlineTrack {
     const genre = item.primaryGenreName || 'Tamil';
     const accentColor = GENRE_ACCENTS[genre] || GENRE_ACCENTS.Default;
+    const artistName = item.artistName || 'Unknown Artist';
+    const trackTitle = item.trackName || 'Untitled Track';
 
     // Cache metadata for fast full-length resolution
     if (item.trackId) {
       this.trackMetadataCache.set(String(item.trackId), {
-        title: item.trackName || '',
-        artist: item.artistName || '',
+        title: trackTitle,
+        artist: artistName,
       });
       if (item.previewUrl) {
         this.streamUrlCache.set(String(item.trackId), {
@@ -1015,18 +1061,15 @@ export class OnlineMusicService {
       }
     }
 
-    const artwork = (item.artworkUrl100 || '')
-      .replace('100x100bb.jpg', '600x600bb.jpg')
-      .replace('100x100bb.png', '600x600bb.png');
-
-    const artistName = item.artistName || 'Unknown Artist';
     const artistId = item.artistId
       ? `itunes_artist_${item.artistId}__${encodeURIComponent(artistName)}`
       : `artist_${encodeURIComponent(artistName)}__${encodeURIComponent(artistName)}`;
 
+    const artwork = this.extractArtwork(item.artworkUrl100, trackTitle, artistName, accentColor);
+
     return {
       id: `itunes_${item.trackId}`,
-      title: item.trackName || 'Untitled Track',
+      title: trackTitle,
       artist: artistName,
       artistId,
       album: item.collectionName || 'Soundtrack Single',
@@ -1035,9 +1078,7 @@ export class OnlineMusicService {
       genre,
       bpm: 126,
       accentColor,
-      artwork:
-        artwork ||
-        'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&auto=format&fit=crop&q=80',
+      artwork,
       audioUrl: `/api/v1/tracks/online/${item.trackId}/stream`,
       playCount: Math.floor(Math.random() * 500000) + 100000,
       isOnline: true,

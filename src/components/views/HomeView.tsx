@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLibraryStore } from '../../stores/useLibraryStore';
 import { useAudioStore } from '../../stores/useAudioStore';
 import { useUIStore } from '../../stores/useUIStore';
+import { apiClient, PersonalizedHomeData } from '../../services/apiClient';
 import { Track } from '../../types/audio';
+import { TrackRow } from '../common/TrackRow';
+import { TrackArtwork } from '../common/TrackArtwork';
 import {
   Play,
   Pause,
@@ -14,122 +17,16 @@ import {
   Disc,
   Users,
   Radio,
+  Sparkles,
+  Compass,
+  RefreshCw,
+  Search,
+  Music,
+  FolderOpen,
+  Volume2,
 } from 'lucide-react';
 
-// "Made for you" Curated Scenic Playlists (from reference UI)
-const MADE_FOR_YOU_CARDS = [
-  {
-    id: 'mfy-late-night',
-    title: 'Late Night Drive',
-    subtitle: 'Chill songs for city nights',
-    artwork: 'https://images.unsplash.com/photo-1509114397022-ed747cca3f65?w=600&auto=format&fit=crop&q=80',
-    query: 'The Weeknd Starboy Blinding Lights',
-  },
-  {
-    id: 'mfy-falling-in-love',
-    title: 'Falling in Love',
-    subtitle: 'Songs that hit different',
-    artwork: 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=600&auto=format&fit=crop&q=80',
-    query: 'Arijit Singh Kesariya Tum Hi Ho',
-  },
-  {
-    id: 'mfy-acoustic-mornings',
-    title: 'Acoustic Mornings',
-    subtitle: 'Soft, calm & beautiful',
-    artwork: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=600&auto=format&fit=crop&q=80',
-    query: 'Sid Sriram acoustic melodies',
-  },
-  {
-    id: 'mfy-midnight-memories',
-    title: 'Midnight Memories',
-    subtitle: 'Nostalgic tunes for the soul',
-    artwork: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=600&auto=format&fit=crop&q=80',
-    query: 'A.R. Rahman vintage nostalgia',
-  },
-  {
-    id: 'mfy-good-vibes',
-    title: 'Good Vibes',
-    subtitle: 'Feel good playlist',
-    artwork: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&auto=format&fit=crop&q=80',
-    query: 'Anirudh upbeat hit vibes',
-  },
-];
-
-// "Recently played" cards (from reference UI)
-const RECENTLY_PLAYED_CARDS = [
-  {
-    id: 'recent-1',
-    title: 'Dusk Till Dawn',
-    artist: 'Aiden Vale',
-    artwork: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=400&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'recent-2',
-    title: 'Golden Hour',
-    artist: 'Hollow Coves',
-    artwork: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'recent-3',
-    title: 'Someone Like You',
-    artist: 'Adele',
-    artwork: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'recent-4',
-    title: 'It Will Be Okay',
-    artist: 'Tom Odell',
-    artwork: 'https://images.unsplash.com/photo-1499209974431-9dddcece7f88?w=400&auto=format&fit=crop&q=80',
-  },
-  {
-    id: 'recent-5',
-    title: 'Everything I Wanted',
-    artist: 'Billie Eilish',
-    artwork: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400&auto=format&fit=crop&q=80',
-  },
-];
-
-// "Popular tracks" ranked list (from reference UI)
-const POPULAR_TRACKS = [
-  {
-    rank: '01',
-    id: 'pop-1',
-    title: 'Dusk Till Dawn',
-    artist: 'Aiden Vale',
-    duration: '3:45',
-    durationSec: 225,
-    artwork: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=200&auto=format&fit=crop&q=80',
-  },
-  {
-    rank: '02',
-    id: 'pop-2',
-    title: 'Perfect',
-    artist: 'Aiden Vale',
-    duration: '4:12',
-    durationSec: 252,
-    artwork: 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=200&auto=format&fit=crop&q=80',
-  },
-  {
-    rank: '03',
-    id: 'pop-3',
-    title: 'Better With You',
-    artist: 'Aiden Vale',
-    duration: '3:28',
-    durationSec: 208,
-    artwork: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=200&auto=format&fit=crop&q=80',
-  },
-  {
-    rank: '04',
-    id: 'pop-4',
-    title: 'Golden Hour',
-    artist: 'Hollow Coves',
-    duration: '3:36',
-    durationSec: 216,
-    artwork: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=200&auto=format&fit=crop&q=80',
-  },
-];
-
-// Curated Top Global & Indian Icons
+// Curated Top Global & Indian Music Icons (links to real live streaming catalogs)
 const FEATURED_ARTISTS = [
   {
     id: 'itunes_artist_480976476__Anirudh Ravichander',
@@ -175,7 +72,7 @@ const FEATURED_ARTISTS = [
   },
 ];
 
-// Curated Top Soundtracks
+// Curated Top Soundtracks (links to real live streaming albums)
 const FEATURED_ALBUMS = [
   {
     id: 'saavn_album_49113982',
@@ -228,228 +125,337 @@ export const HomeView: React.FC = () => {
   const setSearchQuery = useUIStore((state) => state.setSearchQuery);
   const setQualityPanelOpen = useUIStore((state) => state.setQualityPanelOpen);
 
-  // Hero track: either currently playing or default "Perfect" by Aiden Vale
-  const heroTitle = currentTrack?.title || 'Perfect';
-  const heroArtist = currentTrack?.artist || 'Aiden Vale';
-  const heroArtwork =
-    currentTrack?.artwork ||
-    'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=800&auto=format&fit=crop&q=80';
-  const heroGenre = currentTrack?.genre || 'Indie Pop';
+  // Personalized Home State
+  const [homeData, setHomeData] = useState<PersonalizedHomeData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const loadPersonalizedFeed = async () => {
+    try {
+      const data = await apiClient.getPersonalizedHome();
+      setHomeData(data);
+      if (data?.trending && data.trending.length > 0) {
+        useLibraryStore.setState({ onlineTracks: data.trending });
+      }
+    } catch (err) {
+      console.warn('[HomeView] Could not load personalized home data:', err);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPersonalizedFeed();
+  }, []);
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    loadPersonalizedFeed();
+  };
+
+  // Determine the Hero Showcase Track:
+  // 1. Current playing track if available
+  // 2. Or top recommended track from personalized feed
+  // 3. Or top catalog track from online/library tracks
+  const candidateHeroTrack: Track | null =
+    currentTrack ||
+    homeData?.madeForYou?.[0] ||
+    homeData?.trending?.[0] ||
+    onlineTracks[0] ||
+    allTracks[0] ||
+    null;
 
   const handleHeroPlay = () => {
     if (currentTrack) {
       togglePlay();
-    } else {
-      const topSong = onlineTracks[0] || allTracks[0];
-      if (topSong) {
-        playTrack(topSong, onlineTracks);
-      }
+    } else if (candidateHeroTrack) {
+      const context = homeData?.madeForYou || homeData?.trending || onlineTracks || allTracks;
+      playTrack(candidateHeroTrack, context);
     }
   };
 
-  const handleCardPlay = (query: string) => {
+  const handleCardSearch = (query: string) => {
     setSearchQuery(query);
     setActiveView('search');
   };
 
-  const handlePopularTrackPlay = (t: typeof POPULAR_TRACKS[0]) => {
-    const matched = onlineTracks.find((ot) => ot.title.toLowerCase().includes(t.title.toLowerCase())) || {
-      id: t.id,
-      title: t.title,
-      artist: t.artist,
-      duration: t.durationSec,
-      artwork: t.artwork,
-      genre: 'Indie Pop',
-      bpm: 120,
-      accentColor: '#f3c5a6',
-      audioUrl: '/api/v1/tracks/online/1/stream',
-      playCount: 1200000,
-      isOnline: true,
-      album: 'Midnight Sessions',
-    };
-    playTrack(matched as Track, onlineTracks);
-  };
-
-  // Waveform heights matching the reference image's visualizer bars
+  // Waveform sound bar heights for the visualizer under the vinyl disc
   const WAVEFORM_HEIGHTS = [
     6, 10, 14, 20, 26, 18, 12, 8, 14, 22, 28, 24, 16, 10, 15, 20, 27, 21, 14, 8,
-    12, 19, 25, 20, 13, 9, 15, 22, 26, 17, 11, 7
+    12, 19, 25, 20, 13, 9, 15, 22, 26, 17, 11, 7,
   ];
+
+  const hasHistory = homeData?.hasHistory || false;
+  const madeForYouTracks = (homeData?.madeForYou && homeData.madeForYou.length > 0)
+    ? homeData.madeForYou
+    : onlineTracks.slice(0, 5);
+
+  const recentlyPlayedTracks = homeData?.recentlyPlayed || [];
+  const dailyMixes = (homeData?.dailyMixes && homeData.dailyMixes.length > 0)
+    ? homeData.dailyMixes
+    : homeData?.curatedMixes || [];
+
+  const becauseYouListenedTo = homeData?.becauseYouListenedTo;
+  const trendingTracks = (homeData?.trending && homeData.trending.length > 0)
+    ? homeData.trending
+    : onlineTracks.slice(0, 6);
 
   return (
     <div className="flex flex-col gap-9 pb-36 animate-in fade-in duration-300 select-none">
       {/* ─────────────────────────────────────────────────────────────
-          1. HERO FEATURE SHOWCASE (Matches reference screenshot)
+          1. HERO FEATURE SHOWCASE (Dynamic, reflects real playback)
          ───────────────────────────────────────────────────────────── */}
-      <div className="relative rounded-3xl bg-[#121110] border border-white/[0.07] p-6 sm:p-8 flex flex-col lg:flex-row items-center justify-between gap-8 shadow-2xl overflow-hidden group">
-        {/* Subtle Warm Ambiance Glow */}
-        <div className="absolute -left-16 -top-16 w-80 h-80 rounded-full bg-[#f3c5a6]/[0.05] blur-[120px] pointer-events-none" />
-        <div className="absolute right-0 bottom-0 w-80 h-80 rounded-full bg-[#d4a373]/[0.04] blur-[120px] pointer-events-none" />
+      {candidateHeroTrack ? (
+        <div className="relative rounded-3xl bg-[#121110] border border-white/[0.07] p-6 sm:p-8 flex flex-col lg:flex-row items-center justify-between gap-8 shadow-2xl overflow-hidden group">
+          {/* Subtle Warm Ambiance Glow */}
+          <div className="absolute -left-16 -top-16 w-80 h-80 rounded-full bg-[#f3c5a6]/[0.05] blur-[120px] pointer-events-none" />
+          <div className="absolute right-0 bottom-0 w-80 h-80 rounded-full bg-[#d4a373]/[0.04] blur-[120px] pointer-events-none" />
 
-        {/* Left: Romantic / Dusk Album Cover Artwork */}
-        <div className="relative w-64 h-64 sm:w-72 sm:h-72 rounded-2xl overflow-hidden shadow-2xl flex-shrink-0 bg-[#1c1a18] ring-1 ring-white/10 group-hover:scale-[1.01] transition-transform duration-500">
-          <img
-            src={heroArtwork}
-            alt={heroTitle}
-            className="w-full h-full object-cover"
-          />
-          {/* Subtle vignette gradient */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
-        </div>
-
-        {/* Center: Track Metadata, Quote & Controls */}
-        <div className="flex flex-col gap-3 max-w-md w-full z-10 text-center lg:text-left">
-          <span className="text-[11px] font-mono tracking-[0.25em] text-[#a89e95] uppercase font-bold">
-            NOW PLAYING
-          </span>
-
-          <h1 className="font-serif text-4xl sm:text-5xl lg:text-6xl text-[#fbf6f1] font-normal tracking-tight">
-            {heroTitle}
-          </h1>
-
-          <p
-            onClick={() => openArtistView(`artist_${encodeURIComponent(heroArtist)}__${encodeURIComponent(heroArtist)}`)}
-            className="font-serif italic text-lg sm:text-xl text-[#d4c3b7] hover:text-[#f3c5a6] transition-colors cursor-pointer self-center lg:self-start"
-          >
-            {heroArtist}
-          </p>
-
-          <div className="flex items-center justify-center lg:justify-start gap-2.5 text-xs text-[#8f867e] font-sans flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <Heart className="w-3.5 h-3.5 text-[#f3c5a6] fill-[#f3c5a6]" />
-              <span>4.8M</span>
-            </div>
-            <span>•</span>
-            <span>{heroGenre}</span>
-
-            {/* Lossless Audio Quality Badge */}
-            {actualDeliveredQuality ? (
-              <>
-                <span>•</span>
-                <button
-                  onClick={() => setQualityPanelOpen(true)}
-                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wider font-semibold border transition-all hover:scale-105 active:scale-95 ${
-                    actualDeliveredQuality.qualityTier === 'HI_RES_LOSSLESS'
-                      ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/25'
-                      : actualDeliveredQuality.isLossless
-                      ? 'bg-aura-cyan/15 text-aura-cyan border-aura-cyan/40 hover:bg-aura-cyan/25'
-                      : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
-                  }`}
-                  title="View Authentic Stream Quality & Bit-Perfect Pipeline"
-                >
-                  <Radio className="w-2.5 h-2.5 text-current animate-pulse" />
-                  <span>
-                    {actualDeliveredQuality.qualityTier === 'HI_RES_LOSSLESS'
-                      ? 'HI-RES'
-                      : actualDeliveredQuality.qualityTier === 'LOSSLESS'
-                      ? 'LOSSLESS'
-                      : 'HIGH'}
-                  </span>
-                  <span className="opacity-50">•</span>
-                  <span>{actualDeliveredQuality.codec}</span>
-                  {actualDeliveredQuality.bitDepth && <span>{actualDeliveredQuality.bitDepth}b</span>}
-                  {actualDeliveredQuality.sampleRate && (
-                    <span>{Math.round(actualDeliveredQuality.sampleRate / 1000)}k</span>
-                  )}
-                </button>
-              </>
-            ) : currentTrack?.qualityTier ? (
-              <>
-                <span>•</span>
-                <button
-                  onClick={() => setQualityPanelOpen(true)}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wider font-semibold border border-[#f3c5a6]/30 bg-[#f3c5a6]/10 text-[#f3c5a6] hover:bg-[#f3c5a6]/20 transition-all"
-                >
-                  <Radio className="w-2.5 h-2.5" />
-                  <span>{currentTrack.qualityTier === 'HI_RES_LOSSLESS' ? 'HI-RES' : currentTrack.qualityTier}</span>
-                </button>
-              </>
-            ) : null}
+          {/* Left: Album Cover Artwork */}
+          <div className="relative w-64 h-64 sm:w-72 sm:h-72 rounded-2xl overflow-hidden shadow-2xl flex-shrink-0 bg-[#1c1a18] ring-1 ring-white/10 group-hover:scale-[1.01] transition-transform duration-500">
+            <TrackArtwork
+              artworkUrl={candidateHeroTrack.artwork}
+              title={candidateHeroTrack.title}
+              artist={candidateHeroTrack.artist}
+              accentColor={candidateHeroTrack.accentColor}
+            />
+            {/* Subtle vignette gradient */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
           </div>
 
-          <p className="text-xs text-[#8f867e] italic leading-relaxed pt-1">
-            Every moment with you feels like the perfect song.
-          </p>
-
-          {/* Action Buttons: Play + Like + More */}
-          <div className="flex items-center justify-center lg:justify-start gap-3 pt-3">
-            <button
-              onClick={handleHeroPlay}
-              className="flex items-center gap-2.5 px-8 py-2.5 rounded-full bg-[#f3c5a6] hover:bg-[#ffcca8] text-[#141210] font-bold text-xs tracking-wide shadow-lg hover:shadow-[#f3c5a6]/20 hover:scale-105 active:scale-95 transition-all"
-            >
-              {isPlaying && currentTrack ? (
-                <>
-                  <Pause className="w-4 h-4 fill-current" />
-                  <span>Pause</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-current ml-0.5" />
-                  <span>Play</span>
-                </>
+          {/* Center: Track Metadata & Controls */}
+          <div className="flex flex-col gap-3 max-w-md w-full z-10 text-center lg:text-left">
+            <div className="flex items-center justify-center lg:justify-start gap-2">
+              <span className="text-[11px] font-mono tracking-[0.25em] text-[#a89e95] uppercase font-bold">
+                {currentTrack ? 'NOW PLAYING' : 'FEATURED DISCOVERY'}
+              </span>
+              {currentTrack && (
+                <span className="w-2 h-2 rounded-full bg-[#f3c5a6] animate-pulse" />
               )}
-            </button>
+            </div>
 
-            <button
-              onClick={() => (currentTrack ? toggleLike(currentTrack.id) : null)}
-              className={`w-10 h-10 rounded-full border border-white/[0.12] hover:border-[#f3c5a6] flex items-center justify-center transition-all ${
-                isLiked ? 'text-[#f3c5a6] border-[#f3c5a6]' : 'text-[#c4b9af] hover:text-[#f3c5a6]'
-              }`}
-              title="Like track"
-            >
-              <Heart className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
-            </button>
+            <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl text-[#fbf6f1] font-normal tracking-tight line-clamp-2">
+              {candidateHeroTrack.title}
+            </h1>
 
-            <button
-              className="w-10 h-10 rounded-full border border-white/[0.12] hover:border-white/30 flex items-center justify-center text-[#c4b9af] hover:text-white transition-all"
-              title="More options"
+            <p
+              onClick={() => {
+                const token =
+                  candidateHeroTrack.artistId ||
+                  `artist_${encodeURIComponent(candidateHeroTrack.artist)}__${encodeURIComponent(candidateHeroTrack.artist)}`;
+                openArtistView(token);
+              }}
+              className="font-serif italic text-lg sm:text-xl text-[#d4c3b7] hover:text-[#f3c5a6] transition-colors cursor-pointer self-center lg:self-start truncate max-w-full"
             >
-              <MoreHorizontal className="w-4 h-4" />
-            </button>
+              {candidateHeroTrack.artist}
+            </p>
+
+            <div className="flex items-center justify-center lg:justify-start gap-2.5 text-xs text-[#8f867e] font-sans flex-wrap">
+              <span>{candidateHeroTrack.genre || 'Audiophile Stream'}</span>
+
+              {/* Lossless Audio Quality Badge */}
+              {actualDeliveredQuality && currentTrack ? (
+                <>
+                  <span>•</span>
+                  <button
+                    onClick={() => setQualityPanelOpen(true)}
+                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wider font-semibold border transition-all hover:scale-105 active:scale-95 ${
+                      actualDeliveredQuality.qualityTier === 'HI_RES_LOSSLESS'
+                        ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/25'
+                        : actualDeliveredQuality.isLossless
+                        ? 'bg-[#f3c5a6]/15 text-[#f3c5a6] border-[#f3c5a6]/40 hover:bg-[#f3c5a6]/25'
+                        : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                    }`}
+                    title="View Authentic Stream Quality & Diagnostics"
+                  >
+                    <Radio className="w-2.5 h-2.5 text-current animate-pulse" />
+                    <span>
+                      {actualDeliveredQuality.qualityTier === 'HI_RES_LOSSLESS'
+                        ? 'HI-RES'
+                        : actualDeliveredQuality.qualityTier === 'LOSSLESS'
+                        ? 'LOSSLESS'
+                        : 'HIGH'}
+                    </span>
+                    <span className="opacity-50">•</span>
+                    <span>{actualDeliveredQuality.codec}</span>
+                    {actualDeliveredQuality.bitDepth && <span>{actualDeliveredQuality.bitDepth}b</span>}
+                    {actualDeliveredQuality.sampleRate && (
+                      <span>{Math.round(actualDeliveredQuality.sampleRate / 1000)}k</span>
+                    )}
+                  </button>
+                </>
+              ) : candidateHeroTrack.qualityTier ? (
+                <>
+                  <span>•</span>
+                  <button
+                    onClick={() => setQualityPanelOpen(true)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wider font-semibold border border-[#f3c5a6]/30 bg-[#f3c5a6]/10 text-[#f3c5a6] hover:bg-[#f3c5a6]/20 transition-all"
+                  >
+                    <Radio className="w-2.5 h-2.5" />
+                    <span>
+                      {candidateHeroTrack.qualityTier === 'HI_RES_LOSSLESS' ? 'HI-RES' : candidateHeroTrack.qualityTier}
+                    </span>
+                  </button>
+                </>
+              ) : null}
+            </div>
+
+            <p className="text-xs text-[#8f867e] italic leading-relaxed pt-1">
+              {candidateHeroTrack.album ? `From the album "${candidateHeroTrack.album}"` : 'Experience authentic high-fidelity acoustics on AURA.'}
+            </p>
+
+            {/* Action Buttons: Play + Like + Refresh */}
+            <div className="flex items-center justify-center lg:justify-start gap-3 pt-3">
+              <button
+                onClick={handleHeroPlay}
+                className="flex items-center gap-2.5 px-8 py-2.5 rounded-full bg-[#f3c5a6] hover:bg-[#ffcca8] text-[#141210] font-bold text-xs tracking-wide shadow-lg hover:shadow-[#f3c5a6]/20 hover:scale-105 active:scale-95 transition-all"
+              >
+                {isPlaying && currentTrack?.id === candidateHeroTrack.id ? (
+                  <>
+                    <Pause className="w-4 h-4 fill-current" />
+                    <span>Pause</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 fill-current ml-0.5" />
+                    <span>Play</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => toggleLike(candidateHeroTrack.id)}
+                className={`w-10 h-10 rounded-full border border-white/[0.12] hover:border-[#f3c5a6] flex items-center justify-center transition-all ${
+                  isLiked ? 'text-[#f3c5a6] border-[#f3c5a6]' : 'text-[#c4b9af] hover:text-[#f3c5a6]'
+                }`}
+                title="Like track"
+              >
+                <Heart className={`w-4 h-4 ${isLiked ? 'fill-current' : ''}`} />
+              </button>
+
+              <button
+                onClick={handleRefresh}
+                title="Refresh Recommendations"
+                className={`w-10 h-10 rounded-full border border-white/[0.12] hover:border-white/30 flex items-center justify-center text-[#c4b9af] hover:text-white transition-all ${
+                  isRefreshing ? 'animate-spin text-[#f3c5a6]' : ''
+                }`}
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Right: Realistic 3D Vinyl Record & Pulsing Equalizer */}
-        <div className="relative flex flex-col items-center justify-center flex-shrink-0 z-10">
-          {/* Vinyl Record Disc */}
-          <div className="relative w-44 h-44 sm:w-52 sm:h-52 rounded-full midnight-vinyl midnight-grooves p-1 shadow-2xl flex items-center justify-center group-hover:translate-x-1 transition-transform">
-            {/* Concentric Sheen Ring */}
-            <div
-              className={`w-full h-full rounded-full border border-white/[0.08] flex items-center justify-center ${
-                isPlaying ? 'animate-spin-slow' : ''
-              }`}
-            >
-              {/* Center Vinyl Label */}
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-[#1b1715] border-2 border-[#f3c5a6]/30 flex flex-col items-center justify-center text-center p-1 shadow-inner">
-                <span className="text-[7px] font-mono tracking-widest text-[#f3c5a6] uppercase font-bold">
-                  MIDNIGHT
-                </span>
-                <div className="w-2.5 h-2.5 rounded-full bg-[#0a0908] border border-white/20 mt-1" />
+          {/* Right: Realistic 3D Vinyl Record & Pulsing Equalizer */}
+          <div className="relative flex flex-col items-center justify-center flex-shrink-0 z-10">
+            {/* Vinyl Record Disc */}
+            <div className="relative w-44 h-44 sm:w-52 sm:h-52 rounded-full midnight-vinyl midnight-grooves p-1 shadow-2xl flex items-center justify-center group-hover:translate-x-1 transition-transform">
+              <div
+                className={`w-full h-full rounded-full border border-white/[0.08] flex items-center justify-center ${
+                  isPlaying ? 'animate-spin-slow' : ''
+                }`}
+              >
+                {/* Center Vinyl Label */}
+                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-[#1b1715] border-2 border-[#f3c5a6]/30 flex flex-col items-center justify-center text-center p-1 shadow-inner">
+                  <span className="text-[7px] font-mono tracking-widest text-[#f3c5a6] uppercase font-bold">
+                    MIDNIGHT
+                  </span>
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#0a0908] border border-white/20 mt-1" />
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Equalizer Waveform Sound Bars Under Vinyl */}
-          <div className="flex items-end justify-center gap-1 h-8 mt-5 w-48">
-            {WAVEFORM_HEIGHTS.map((h, i) => (
-              <span
-                key={i}
-                className="w-0.5 rounded-full bg-[#f3c5a6]/70 transition-all duration-300"
-                style={{
-                  height: isPlaying ? `${Math.max(4, (h * (0.6 + Math.sin((i + Date.now() / 200) * 0.4) * 0.4)))}px` : `${Math.max(3, h * 0.35)}px`,
-                }}
-              />
-            ))}
+            {/* Equalizer Waveform Sound Bars Under Vinyl */}
+            <div className="flex items-end justify-center gap-1 h-8 mt-5 w-48">
+              {WAVEFORM_HEIGHTS.map((h, i) => (
+                <span
+                  key={i}
+                  className="w-0.5 rounded-full bg-[#f3c5a6]/70 transition-all duration-300"
+                  style={{
+                    height: isPlaying
+                      ? `${Math.max(4, h * (0.6 + Math.sin((i + Date.now() / 200) * 0.4) * 0.4))}px`
+                      : `${Math.max(3, h * 0.35)}px`,
+                  }}
+                />
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        /* Welcome Hero for brand new or empty catalog state */
+        <div className="relative rounded-3xl bg-[#121110] border border-white/[0.07] p-8 sm:p-12 flex flex-col items-center text-center justify-center gap-4 shadow-2xl overflow-hidden">
+          <div className="w-14 h-14 rounded-2xl bg-[#241d19] border border-[#f3c5a6]/30 flex items-center justify-center text-[#f3c5a6] shadow-lg">
+            <Sparkles className="w-7 h-7" />
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-serif text-[#fbf6f1]">Welcome to AURA</h1>
+          <p className="text-xs sm:text-sm text-[#8f867e] max-w-md leading-relaxed">
+            Personalized audiophile music streaming. Search across millions of regional and global tracks, or import your lossless collection.
+          </p>
+          <div className="flex items-center gap-3 pt-2">
+            <button
+              onClick={() => setActiveView('search')}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-[#f3c5a6] text-[#141210] font-bold text-xs hover:scale-105 transition-all shadow-lg"
+            >
+              <Search className="w-4 h-4" />
+              <span>Search Music Catalog</span>
+            </button>
+            <button
+              onClick={() => setActiveView('studio')}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-full bg-white/5 border border-white/10 text-white font-medium text-xs hover:bg-white/10 transition-all"
+            >
+              <FolderOpen className="w-4 h-4 text-[#f3c5a6]" />
+              <span>Import Audio Files</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ─────────────────────────────────────────────────────────────
-          2. "MADE FOR YOU" SECTION (Horizontal Scenic Cards)
+          2. NEW USER FIRST-LISTEN GUIDANCE BANNER (Transparent onboarding)
+         ───────────────────────────────────────────────────────────── */}
+      {!hasHistory && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-[#1a1816] via-[#141312] to-[#121110] border border-[#f3c5a6]/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-full bg-[#241d19] border border-[#f3c5a6]/30 flex items-center justify-center text-[#f3c5a6] shrink-0 mt-0.5">
+              <Compass className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs sm:text-sm font-bold text-[#fbf6f1]">
+                First Listen • Personalize Your Stream
+              </h3>
+              <p className="text-[11px] text-[#8f867e] leading-relaxed mt-0.5">
+                Stream any song or tap an artist to calibrate your personal acoustic profile. As you listen, your Daily Mixes and custom recommendations will generate automatically.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+            <button
+              onClick={() => setActiveView('search')}
+              className="text-xs font-semibold text-[#f3c5a6] hover:underline flex items-center gap-1"
+            >
+              <span>Explore Categories</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          3. "MADE FOR YOU" / PERSONALIZED DISCOVERIES
          ───────────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-[#fbf6f1] tracking-tight">Made for you</h2>
+          <div>
+            <h2 className="text-xl font-bold text-[#fbf6f1] tracking-tight">
+              {hasHistory ? 'Made for you' : 'Trending & Popular Discoveries'}
+            </h2>
+            <p className="text-[11px] text-[#8f867e] mt-0.5">
+              {hasHistory
+                ? 'Algorithmic selections matching your unique acoustic profile and favorite genres'
+                : 'Top-charting releases and trending frequencies across streaming catalogs'}
+            </p>
+          </div>
           <button
             onClick={() => setActiveView('search')}
             className="text-xs font-semibold text-[#8f867e] hover:text-[#f3c5a6] transition-colors"
@@ -458,97 +464,157 @@ export const HomeView: React.FC = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {MADE_FOR_YOU_CARDS.map((card) => (
-            <div
-              key={card.id}
-              onClick={() => handleCardPlay(card.query)}
-              className="group relative aspect-[16/11] rounded-2xl overflow-hidden cursor-pointer bg-[#161514] border border-white/[0.06] hover:border-[#f3c5a6]/40 transition-all shadow-lg"
-            >
-              <img
-                src={card.artwork}
-                alt={card.title}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              />
-              {/* Dark Gradient Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-3.5 flex flex-col justify-end" />
-
-              {/* Title & Subtitle */}
-              <div className="absolute bottom-3 left-3 right-12 z-10">
-                <h3 className="text-xs font-bold text-white leading-tight truncate">
-                  {card.title}
-                </h3>
-                <p className="text-[10px] text-[#c4b9af] truncate mt-0.5">
-                  {card.subtitle}
-                </p>
-              </div>
-
-              {/* Floating Circular Play Button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCardPlay(card.query);
-                }}
-                className="absolute bottom-3 right-3 w-8 h-8 rounded-full bg-white/20 backdrop-blur-md border border-white/20 text-white hover:bg-[#f3c5a6] hover:text-[#141210] hover:scale-105 flex items-center justify-center transition-all z-10 shadow"
-                title={`Play ${card.title}`}
-              >
-                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ─────────────────────────────────────────────────────────────
-          3. SPLIT ROW: "Recently played" (Left) & "Popular tracks" (Right)
-         ───────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left Column: Recently played (5 Cards) */}
-        <div className="lg:col-span-7 flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-[#fbf6f1] tracking-tight">Recently played</h2>
-            <button
-              onClick={() => setActiveView('library')}
-              className="text-xs font-semibold text-[#8f867e] hover:text-[#f3c5a6] transition-colors"
-            >
-              See all
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-            {RECENTLY_PLAYED_CARDS.map((card) => (
+        {isLoading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            {[1, 2, 3, 4, 5].map((i) => (
               <div
-                key={card.id}
-                onClick={() => handleCardPlay(`${card.title} ${card.artist}`)}
-                className="group p-2.5 rounded-2xl bg-[#141312] border border-white/[0.06] hover:border-[#f3c5a6]/30 cursor-pointer flex flex-col gap-2 transition-all shadow-md"
+                key={i}
+                className="aspect-[16/11] rounded-2xl bg-[#161514] border border-white/[0.04] animate-pulse"
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            {madeForYouTracks.map((track) => (
+              <div
+                key={track.id}
+                onClick={() => playTrack(track, madeForYouTracks)}
+                className="group relative aspect-[16/11] rounded-2xl overflow-hidden cursor-pointer bg-[#161514] border border-white/[0.06] hover:border-[#f3c5a6]/40 transition-all shadow-lg"
               >
-                <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-[#1f1d1b]">
-                  <img
-                    src={card.artwork}
-                    alt={card.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <div className="w-8 h-8 rounded-full bg-[#f3c5a6] text-[#141210] flex items-center justify-center shadow">
-                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                    </div>
-                  </div>
+                <TrackArtwork
+                  artworkUrl={track.artwork}
+                  title={track.title}
+                  artist={track.artist}
+                  accentColor={track.accentColor}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+                {/* Dark Gradient Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-3.5 flex flex-col justify-end" />
+
+                {/* Title & Artist */}
+                <div className="absolute bottom-3 left-3 right-12 z-10">
+                  <h3 className="text-xs font-bold text-white leading-tight truncate">
+                    {track.title}
+                  </h3>
+                  <p className="text-[10px] text-[#c4b9af] truncate mt-0.5">
+                    {track.artist}
+                  </p>
                 </div>
 
-                <div className="flex flex-col min-w-0">
-                  <span className="text-xs font-bold text-white truncate group-hover:text-[#f3c5a6] transition-colors">
-                    {card.title}
-                  </span>
-                  <span className="text-[10px] text-[#8f867e] truncate mt-0.5">
-                    {card.artist}
-                  </span>
-                </div>
+                {/* Floating Circular Play Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playTrack(track, madeForYouTracks);
+                  }}
+                  className="absolute bottom-3 right-3 w-8 h-8 rounded-full bg-white/20 backdrop-blur-md border border-white/20 text-white hover:bg-[#f3c5a6] hover:text-[#141210] hover:scale-105 flex items-center justify-center transition-all z-10 shadow"
+                  title={`Play ${track.title}`}
+                >
+                  <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                </button>
               </div>
             ))}
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* Right Column: Popular tracks (Ranked 01-04) */}
+      {/* ─────────────────────────────────────────────────────────────
+          4. SPLIT ROW: "Recently played" (Left) & "Trending Tracks" (Right)
+         ───────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Left Column: Genuine Recently Played (Only shown if history exists) */}
+        {recentlyPlayedTracks.length > 0 ? (
+          <div className="lg:col-span-7 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-[#fbf6f1] tracking-tight">Recently played</h2>
+                <p className="text-[11px] text-[#8f867e] mt-0.5">
+                  Your genuine playback history across all sessions
+                </p>
+              </div>
+              <button
+                onClick={() => setActiveView('library')}
+                className="text-xs font-semibold text-[#8f867e] hover:text-[#f3c5a6] transition-colors"
+              >
+                See all
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+              {recentlyPlayedTracks.slice(0, 5).map((track) => (
+                <div
+                  key={track.id}
+                  onClick={() => playTrack(track, recentlyPlayedTracks)}
+                  className="group p-2.5 rounded-2xl bg-[#141312] border border-white/[0.06] hover:border-[#f3c5a6]/30 cursor-pointer flex flex-col gap-2 transition-all shadow-md"
+                >
+                  <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-[#1f1d1b]">
+                    <TrackArtwork
+                      artworkUrl={track.artwork}
+                      title={track.title}
+                      artist={track.artist}
+                      accentColor={track.accentColor}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                      <div className="w-8 h-8 rounded-full bg-[#f3c5a6] text-[#141210] flex items-center justify-center shadow">
+                        <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs font-bold text-white truncate group-hover:text-[#f3c5a6] transition-colors">
+                      {track.title}
+                    </span>
+                    <span className="text-[10px] text-[#8f867e] truncate mt-0.5">
+                      {track.artist}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* When new user has no recent history: Show Discovery Mixes Preview */
+          <div className="lg:col-span-7 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-[#fbf6f1] tracking-tight">Sonic Exploration</h2>
+                <p className="text-[11px] text-[#8f867e] mt-0.5">
+                  Curated soundscapes to discover your audiophile signature
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                { title: 'Acoustic Calm', query: 'acoustic guitar chill melodious', desc: 'Warm intimate vocals & fingerpicked strings' },
+                { title: 'Midnight Drive', query: 'late night synthwave electronic', desc: 'Deep atmospheric basslines & neon synthesizers' },
+                { title: 'Cinematic Heights', query: 'cinematic soundtrack orchestra', desc: 'Epic orchestral master recordings & scores' },
+                { title: 'Lo-Fi Chillhop', query: 'lo-fi beats relax study', desc: 'Mellow vinyl crackle & downtempo grooves' },
+              ].map((c) => (
+                <div
+                  key={c.title}
+                  onClick={() => handleCardSearch(c.query)}
+                  className="p-4 rounded-2xl bg-[#141312] border border-white/[0.06] hover:border-[#f3c5a6]/40 cursor-pointer flex flex-col justify-between gap-3 group transition-all"
+                >
+                  <div>
+                    <h3 className="text-sm font-bold text-[#fbf6f1] group-hover:text-[#f3c5a6] transition-colors">
+                      {c.title}
+                    </h3>
+                    <p className="text-[11px] text-[#8f867e] mt-1">{c.desc}</p>
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] font-mono font-semibold text-[#f3c5a6] uppercase tracking-wider">
+                    <span>Explore Mix</span>
+                    <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Right Column: Top Rated Real Tracks (5 tracks using TrackRow) */}
         <div className="lg:col-span-5 flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-[#fbf6f1] tracking-tight">Popular tracks</h2>
@@ -560,53 +626,121 @@ export const HomeView: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex flex-col gap-2">
-            {POPULAR_TRACKS.map((t) => (
-              <div
-                key={t.id}
-                onClick={() => handlePopularTrackPlay(t)}
-                className="group flex items-center justify-between p-2.5 rounded-2xl hover:bg-[#181716] border border-transparent hover:border-white/[0.06] cursor-pointer transition-all"
-              >
-                {/* Rank Number + Artwork + Title/Artist */}
-                <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                  <span className="w-5 text-xs font-mono font-medium text-[#6e665f] group-hover:text-[#f3c5a6] text-center">
-                    {t.rank}
-                  </span>
-
-                  <div className="w-10 h-10 rounded-xl overflow-hidden bg-[#1c1a18] flex-shrink-0 shadow">
-                    <img src={t.artwork} alt={t.title} className="w-full h-full object-cover" />
-                  </div>
-
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-xs font-bold text-[#fbf6f1] truncate group-hover:text-[#f3c5a6] transition-colors">
-                      {t.title}
-                    </span>
-                    <span className="text-[11px] text-[#8f867e] truncate mt-0.5">
-                      {t.artist}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Duration & Heart */}
-                <div className="flex items-center gap-4 text-xs font-mono text-[#8f867e]">
-                  <span>{t.duration}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                    }}
-                    className="p-1 text-[#6e665f] hover:text-[#f3c5a6] transition-colors"
-                  >
-                    <Heart className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
+          <div className="flex flex-col gap-1.5 bg-[#141312] rounded-3xl p-2.5 border border-white/[0.06]">
+            {trendingTracks.slice(0, 4).map((track, idx) => (
+              <TrackRow
+                key={track.id}
+                track={track}
+                index={idx}
+                playlistContext={trendingTracks}
+              />
             ))}
           </div>
         </div>
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          4. FEATURED ARTISTS & COMPOSERS (Preserving full artist navigation)
+          5. "BECAUSE YOU LISTENED TO..." (Shown when similarity evidence exists)
+         ───────────────────────────────────────────────────────────── */}
+      {becauseYouListenedTo && becauseYouListenedTo.tracks.length > 0 && (
+        <div className="flex flex-col gap-4 p-5 rounded-3xl bg-[#141312] border border-white/[0.06]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Sparkles className="w-4 h-4 text-[#f3c5a6]" />
+              <div>
+                <h3 className="text-base font-bold text-[#fbf6f1]">
+                  Because you listened to {becauseYouListenedTo.seedTrack.title}
+                </h3>
+                <p className="text-[11px] text-[#8f867e]">
+                  {becauseYouListenedTo.reason}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {becauseYouListenedTo.tracks.slice(0, 4).map((track) => (
+              <div
+                key={track.id}
+                onClick={() => playTrack(track, becauseYouListenedTo.tracks)}
+                className="group p-2.5 rounded-2xl bg-[#181716] border border-white/[0.04] hover:border-[#f3c5a6]/30 cursor-pointer flex flex-col gap-2 transition-all shadow-md"
+              >
+                <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-[#241d19]">
+                  <img
+                    src={track.artwork}
+                    alt={track.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <div className="w-8 h-8 rounded-full bg-[#f3c5a6] text-[#141210] flex items-center justify-center shadow">
+                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-bold text-white truncate group-hover:text-[#f3c5a6] transition-colors">
+                    {track.title}
+                  </span>
+                  <span className="text-[10px] text-[#8f867e] truncate mt-0.5">
+                    {track.artist}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          6. "YOUR DAILY MIXES" (Dynamic 6 mixes based on listening pattern)
+         ───────────────────────────────────────────────────────────── */}
+      {dailyMixes.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-[#fbf6f1] tracking-tight">Your Daily Mixes</h2>
+              <p className="text-[11px] text-[#8f867e] mt-0.5">
+                Continuously refreshed blends designed around your favorite artists, genres, and moods
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+            {dailyMixes.map((mix) => (
+              <div
+                key={mix.id}
+                onClick={() => handleCardSearch(mix.query)}
+                className="group p-3 rounded-2xl bg-[#141312] border border-white/[0.06] hover:border-[#f3c5a6]/30 cursor-pointer flex flex-col gap-2.5 transition-all shadow-md"
+              >
+                <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-[#1c1a18]">
+                  <img
+                    src={mix.artwork}
+                    alt={mix.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <div className="w-8 h-8 rounded-full bg-[#f3c5a6] text-[#141210] flex items-center justify-center shadow">
+                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-bold text-[#fbf6f1] truncate group-hover:text-[#f3c5a6] transition-colors">
+                    {mix.title}
+                  </span>
+                  <span className="text-[10px] text-[#8f867e] truncate mt-0.5">
+                    {mix.subtitle}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          7. FEATURED ARTISTS & COMPOSERS (Preserving full artist navigation)
          ───────────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4 pt-4 border-t border-white/[0.06]">
         <div className="flex items-center justify-between">
@@ -650,7 +784,7 @@ export const HomeView: React.FC = () => {
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          5. BLOCKBUSTER SOUNDTRACKS (Leo, Jawan, Vikram, Petta)
+          8. BLOCKBUSTER SOUNDTRACKS (Leo, Jawan, Vikram, Petta)
          ───────────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
@@ -675,9 +809,10 @@ export const HomeView: React.FC = () => {
               className="group p-3.5 rounded-3xl bg-[#141312] border border-white/[0.06] hover:border-[#f3c5a6]/30 cursor-pointer flex flex-col gap-3 relative shadow-lg transition-all"
             >
               <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-[#1b1917]">
-                <img
-                  src={alb.artwork}
-                  alt={alb.title}
+                <TrackArtwork
+                  artworkUrl={alb.artwork}
+                  title={alb.title}
+                  artist={alb.subtitle}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">

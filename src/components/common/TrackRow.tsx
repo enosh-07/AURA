@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Track } from '../../types/audio';
+import { TrackArtwork } from './TrackArtwork';
 import { useAudioStore } from '../../stores/useAudioStore';
 import { useLibraryStore } from '../../stores/useLibraryStore';
 import { useUIStore } from '../../stores/useUIStore';
@@ -14,7 +15,10 @@ import {
   Music,
   UploadCloud,
   Users,
+  Share2,
 } from 'lucide-react';
+import { shareContent } from '../../platform';
+import { useCapability } from '../../hooks/usePlatform';
 
 interface TrackRowProps {
   track: Track;
@@ -42,6 +46,9 @@ export const TrackRow: React.FC<TrackRowProps> = ({
   const playlists = useLibraryStore((state) => state.playlists);
   const addTrackToPlaylist = useLibraryStore((state) => state.addTrackToPlaylist);
   const uploadTrackToCloud = useLibraryStore((state) => state.uploadTrackToCloud);
+
+  const canShare = useCapability('nativeShare');
+  const [shareSuccess, setShareSuccess] = useState(false);
 
   const [showMenu, setShowMenu] = useState(false);
   const [showPlaylistSubmenu, setShowPlaylistSubmenu] = useState(false);
@@ -90,7 +97,12 @@ export const TrackRow: React.FC<TrackRowProps> = ({
         </div>
 
         <div className="relative w-10 h-10 rounded-xl overflow-hidden bg-aura-surface flex-shrink-0">
-          <img src={track.artwork} alt={track.title} className="w-full h-full object-cover" />
+          <TrackArtwork
+            artworkUrl={track.artwork}
+            title={track.title}
+            artist={track.artist}
+            accentColor={track.accentColor}
+          />
         </div>
 
         <div className="flex flex-col min-w-0">
@@ -195,6 +207,25 @@ export const TrackRow: React.FC<TrackRowProps> = ({
               >
                 <ListPlus className="w-3.5 h-3.5 text-aura-violet" />
                 Add to Queue
+              </button>
+
+              <button
+                onClick={async () => {
+                  setShowMenu(false);
+                  const ok = await shareContent({
+                    title: track.title,
+                    text: `Listen to "${track.title}" by ${track.artist} on AURA`,
+                    url: window.location.href,
+                  });
+                  if (ok) {
+                    setShareSuccess(true);
+                    setTimeout(() => setShareSuccess(false), 2000);
+                  }
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-white/10 text-left text-slate-200"
+              >
+                <Share2 className="w-3.5 h-3.5 text-aura-cyan" />
+                {canShare ? 'Share Track' : 'Copy Share Link'}
               </button>
 
               {track.isLocal && (

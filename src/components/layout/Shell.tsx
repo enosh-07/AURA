@@ -9,7 +9,6 @@ import { MobileNav } from './MobileNav';
 import { MiniPlayer } from '../player/MiniPlayer';
 import { FullscreenPlayer } from '../player/FullscreenPlayer';
 import { AudioLabModal } from '../audioLab/AudioLabModal';
-import { LyricsView } from '../lyrics/LyricsView';
 import { SleepTimerModal } from '../common/SleepTimerModal';
 import { AuraCompanionModal } from '../ai/AuraCompanionModal';
 import { QueueDrawer } from '../player/QueueDrawer';
@@ -29,6 +28,9 @@ import { ArtistView } from '../views/ArtistView';
 import { AlbumView } from '../views/AlbumView';
 import { useAudioStore } from '../../stores/useAudioStore';
 
+import { GuestMigrationModal } from '../common/GuestMigrationModal';
+import { realtimeSync } from '../../services/realtimeSync';
+
 export const Shell: React.FC = () => {
   const activeView = useUIStore((state) => state.activeView);
   const loadInitialData = useLibraryStore((state) => state.loadInitialData);
@@ -36,10 +38,41 @@ export const Shell: React.FC = () => {
   const checkAuth = useAuthStore((state) => state.checkAuth);
   const currentTrack = useAudioStore((state) => state.currentTrack);
 
+  // POINT 5: Deterministic Application Startup Sequence
+  // 1. Initialize authentication and restore session
+  // 2. Load the current user's saved library and listening history
+  // 3. Subscribe to real-time sync bus for cross-tab and cross-device sync
   useEffect(() => {
-    checkAuth();
-    loadInitialData();
-    loadHistory();
+    let isMounted = true;
+
+    async function initApp() {
+      try {
+        await checkAuth();
+      } catch (err) {
+        console.warn('Auth initialization fallback:', err);
+      }
+
+      if (isMounted) {
+        await Promise.all([loadInitialData(), loadHistory()]);
+      }
+    }
+
+    initApp();
+
+    const unsubscribe = realtimeSync.subscribe((event) => {
+      if (
+        event.type === 'LIKE_MUTATION' ||
+        event.type === 'PLAYLIST_MUTATION' ||
+        event.type === 'LIBRARY_REFRESH'
+      ) {
+        useLibraryStore.getState().syncUserData().catch(console.error);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [checkAuth, loadInitialData, loadHistory]);
 
   const renderView = () => {
@@ -100,13 +133,13 @@ export const Shell: React.FC = () => {
       {/* Global Modals & Overlays */}
       <FullscreenPlayer />
       <AudioLabModal />
-      <LyricsView />
       <SleepTimerModal />
       <AuraCompanionModal />
       <QueueDrawer />
       <CommandPalette />
       <AuthModal />
       <AudioQualityPanel />
+      <GuestMigrationModal />
     </div>
   );
 };

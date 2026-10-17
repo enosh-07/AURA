@@ -47,7 +47,31 @@ export class StorageController {
     }
   }
 
+  async getPresignedTicket(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { bucket = 'audio', filename, mimeType } = req.body;
+      if (!filename || !mimeType) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'MISSING_PARAMS', message: 'filename and mimeType are required.' },
+        });
+        return;
+      }
+
+      if (!['audio', 'artwork'].includes(bucket)) {
+        res.status(400).json({ success: false, error: { message: 'Invalid bucket. Must be audio or artwork.' } });
+        return;
+      }
+
+      const ticket = await storageService.getPresignedUploadTicket(bucket as any, filename, mimeType);
+      res.status(200).json({ success: true, data: ticket });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: { message: err.message || 'Failed to issue upload ticket.' } });
+    }
+  }
+
   async serve(req: Request, res: Response): Promise<void> {
+
     try {
       const bucket = String(req.params.bucket);
       const key = String(req.params.key);

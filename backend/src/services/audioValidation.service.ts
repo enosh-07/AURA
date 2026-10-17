@@ -47,6 +47,19 @@ const LOSSY_ENCODER_SIGNATURES = [
 
 export class AudioValidationService {
   /**
+   * Convenient alias for validateAudioFile
+   */
+  async validateFile(
+    filePath: string,
+    mimeTypeOrFilename?: string,
+    originalFilename?: string,
+    sourceType: string = 'USER_UPLOAD'
+  ): Promise<AudioValidationResult> {
+    const filename = originalFilename || mimeTypeOrFilename || path.basename(filePath);
+    return this.validateAudioFile(filePath, filename, sourceType);
+  }
+
+  /**
    * Inspect and validate an audio file.
    * Performs container detection, codec identification, metadata extraction,
    * fake-lossless transcode detection, and quality tier classification.

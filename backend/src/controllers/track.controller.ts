@@ -4,6 +4,8 @@ import { streamService } from '../services/stream.service.js';
 import { onlineMusicService } from '../services/onlineMusic.service.js';
 import { audioValidationService } from '../services/audioValidation.service.js';
 import { audioVariantService } from '../services/audio-variant.service.js';
+import { streamSecurityService } from '../services/stream-security.service.js';
+import { audioProfileService } from '../services/intelligence/index.js';
 import { AuthRequest } from '../middleware/auth.middleware.js';
 
 export const getTracks = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -38,7 +40,13 @@ export const streamTrack = async (req: Request, res: Response, next: NextFunctio
 
 export const getLyrics = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const lyrics = await trackService.getLyrics(req.params.id as string);
+    const { title, artist, album, duration } = req.query;
+    const lyrics = await trackService.getLyrics(req.params.id as string, {
+      title: title as string | undefined,
+      artist: artist as string | undefined,
+      album: album as string | undefined,
+      duration: duration ? Number(duration) : undefined,
+    });
     res.status(200).json({ success: true, data: lyrics });
   } catch (err) {
     next(err);
@@ -47,7 +55,7 @@ export const getLyrics = async (req: Request, res: Response, next: NextFunction)
 
 export const likeTrack = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await trackService.toggleLike(req.user!.id, req.params.id as string, true);
+    const result = await trackService.toggleLike(req.user!.id, req.params.id as string, true, req.body);
     res.status(200).json({ success: true, data: result });
   } catch (err) {
     next(err);
@@ -149,13 +157,22 @@ export const uploadTrack = async (req: AuthRequest, res: Response, next: NextFun
       isDefault: true,
     });
 
+    // Execute Audio Intelligence Pipeline (DSP, LUFS, BPM, Camelot Key, Fingerprint)
+    let audioProfile = null;
+    try {
+      audioProfile = await audioProfileService.analyzeAndSaveTrack(newTrack.id, req.file.path);
+    } catch (analysisErr) {
+      console.warn('[TrackController] Audio intelligence pipeline warning:', analysisErr);
+    }
+
     res.status(201).json({
       success: true,
       data: {
         ...newTrack,
         validation,
+        audioProfile,
       },
-      message: 'Track validated, indexed, and stored with audio fidelity verification',
+      message: 'Track validated, indexed, and analyzed with Audio Intelligence Pipeline',
     });
   } catch (err) {
     next(err);
@@ -166,6 +183,55 @@ export const getQualityInfo = async (req: Request, res: Response, next: NextFunc
   try {
     const info = await trackService.getQualityInfo(req.params.id as string);
     res.status(200).json({ success: true, data: info });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getQualityReport = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const trackId = req.params.id as string;
+    const tier =
+      (req.query.requestedTier as string) ||
+      (req.query.tier as string) ||
+      (req.query.quality as string) ||
+      'AUTO';
+    const title = req.query.title as string | undefined;
+    const artist = req.query.artist as string | undefined;
+
+    const report = await trackService.generateQualityReport(trackId, tier, { title, artist });
+    res.status(200).json({ success: true, data: report });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const findLosslessAlternative = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    let title = (req.query.title as string) || '';
+    let artist = (req.query.artist as string) || '';
+    let album = req.query.album as string | undefined;
+
+    // If ID provided without explicit title/artist, look up track details
+    const trackId = req.params.id as string;
+    if (trackId && (!title || !artist)) {
+      const { prisma } = await import('../services/prisma.js');
+      const dbTrack = await prisma.track.findUnique({ where: { id: trackId } });
+      if (dbTrack) {
+        title = title || dbTrack.title;
+        artist = artist || dbTrack.artist;
+        album = album || dbTrack.album || undefined;
+      }
+    }
+
+    const { providerRegistry } = await import('../services/providers/provider-registry.js');
+    const alternative = await providerRegistry.findLosslessAlternative(title, artist, album);
+
+    res.status(200).json({
+      success: true,
+      data: alternative,
+      hasAlternative: !!alternative,
+    });
   } catch (err) {
     next(err);
   }
@@ -245,4 +311,68 @@ export const streamOnlineTrack = async (req: Request, res: Response, next: NextF
     next(err);
   }
 };
+
+export const getStreamToken = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const trackId = req.params.id as string;
+    const userId = req.user?.id || 'public_listener';
+    const requestedTier = ((req.query.tier as string) || (req.query.quality as string) || 'HI_RES_LOSSLESS').toUpperCase();
+
+    const signed = streamSecurityService.generateSignedToken(trackId, userId, requestedTier as any);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        trackId,
+        token: signed.token,
+        expiresAt: signed.expiresAt,
+        streamUrl: signed.streamPath,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getAudioProfile = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const trackId = req.params.id as string;
+    const profile = await audioProfileService.getProfileByTrackId(trackId);
+    if (!profile) {
+      res.status(404).json({
+        success: false,
+        error: { message: `Audio profile not found for track ${trackId}` },
+      });
+      return;
+    }
+    res.status(200).json({
+      success: true,
+      data: profile,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const analyzeTrack = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const trackId = req.params.id as string;
+    const profile = await audioProfileService.analyzeAndSaveTrack(trackId);
+    if (!profile) {
+      res.status(400).json({
+        success: false,
+        error: { message: `Audio analysis could not be completed for track ${trackId}. File might not be stored locally.` },
+      });
+      return;
+    }
+    res.status(200).json({
+      success: true,
+      data: profile,
+      message: 'Audio intelligence pipeline analysis completed',
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 

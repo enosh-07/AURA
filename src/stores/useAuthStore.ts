@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { apiClient } from '../services/apiClient';
+import { supabaseAuth, isSupabaseConfigured } from '../services/supabaseClient';
 import { useAudioLabStore } from './useAudioLabStore';
 import { useUIStore } from './useUIStore';
 import { useLibraryStore } from './useLibraryStore';
@@ -53,13 +54,16 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   isAuthModalOpen: boolean;
-  authMode: 'login' | 'register';
+  authMode: 'login' | 'register' | 'forgot_password';
   error: string | null;
+  notificationMessage: string | null;
 
-  setAuthModalOpen: (open: boolean, mode?: 'login' | 'register') => void;
+  setAuthModalOpen: (open: boolean, mode?: 'login' | 'register' | 'forgot_password') => void;
   setError: (error: string | null) => void;
+  setNotificationMessage: (msg: string | null) => void;
   login: (email: string, password: string) => Promise<boolean>;
   register: (name: string, email: string, password: string) => Promise<boolean>;
+  resetPassword: (email: string) => Promise<boolean>;
   googleLogin: (payload: {
     idToken?: string;
     accessToken?: string;
@@ -81,16 +85,44 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthModalOpen: false,
   authMode: 'login',
   error: null,
+  notificationMessage: null,
 
-  setAuthModalOpen: (open: boolean, mode: 'login' | 'register' = 'login') => {
-    set({ isAuthModalOpen: open, authMode: mode, error: null });
+  setAuthModalOpen: (open: boolean, mode: 'login' | 'register' | 'forgot_password' = 'login') => {
+    set({ isAuthModalOpen: open, authMode: mode, error: null, notificationMessage: null });
   },
 
   setError: (error: string | null) => set({ error }),
+  setNotificationMessage: (notificationMessage: string | null) => set({ notificationMessage }),
 
   login: async (email: string, password: string) => {
     set({ isLoading: true, error: null });
     try {
+      // 1. Try Supabase Auth if configured
+      if (isSupabaseConfigured()) {
+        const { user: sbUser, session, error } = await supabaseAuth.signInWithPassword(email, password);
+        if (error) throw error;
+        if (sbUser && session) {
+          apiClient.setToken(session.access_token);
+          const formattedUser: UserProfile = {
+            id: sbUser.id,
+            name: sbUser.user_metadata?.name || sbUser.email?.split('@')[0] || 'AURA Listener',
+            email: sbUser.email || email,
+            avatarUrl: sbUser.user_metadata?.avatar_url,
+          };
+          set({
+            user: formattedUser,
+            isAuthenticated: true,
+            isLoading: false,
+            isAuthModalOpen: false,
+            error: null,
+          });
+          useLibraryStore.getState().syncUserData().catch(console.error);
+          useAudioStore.getState().restorePlaybackFromDB().catch(console.error);
+          return true;
+        }
+      }
+
+      // 2. Fallback to API Client
       const data = await apiClient.login(email, password);
       set({
         user: data.user,
@@ -102,7 +134,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (data.user?.preferences) {
         applyUserPreferencesToStores(data.user.preferences);
       }
-      // Real-time DB sync for playlists, liked tracks & saved playback state
       useLibraryStore.getState().syncUserData().catch(console.error);
       useAudioStore.getState().restorePlaybackFromDB().catch(console.error);
       return true;
@@ -118,6 +149,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (name: string, email: string, password: string) => {
     set({ isLoading: true, error: null });
     try {
+      // 1. Try Supabase Auth if configured
+      if (isSupabaseConfigured()) {
+        const { user: sbUser, session, error } = await supabaseAuth.signUp(email, password, name);
+        if (error) throw error;
+        if (sbUser) {
+          if (session) {
+            apiClient.setToken(session.access_token);
+          }
+          const formattedUser: UserProfile = {
+            id: sbUser.id,
+            name: name,
+            email: sbUser.email || email,
+            avatarUrl: sbUser.user_metadata?.avatar_url,
+          };
+          set({
+            user: formattedUser,
+            isAuthenticated: Boolean(session),
+            isLoading: false,
+            isAuthModalOpen: !session, // Keep open if confirmation required
+            notificationMessage: session ? null : 'Confirmation email sent! Please check your inbox.',
+            error: null,
+          });
+          if (session) {
+            useLibraryStore.getState().syncUserData().catch(console.error);
+            useAudioStore.getState().restorePlaybackFromDB().catch(console.error);
+          }
+          return true;
+        }
+      }
+
+      // 2. Fallback to API Client
       const data = await apiClient.register(name, email, password);
       set({
         user: data.user,
@@ -141,9 +203,44 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
+  resetPassword: async (email: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      if (isSupabaseConfigured()) {
+        const { error } = await supabaseAuth.resetPasswordForEmail(email);
+        if (error) throw error;
+        set({
+          isLoading: false,
+          notificationMessage: 'Password reset link sent to your email address.',
+        });
+        return true;
+      }
+      set({
+        isLoading: false,
+        notificationMessage: 'Password reset instructions have been dispatched.',
+      });
+      return true;
+    } catch (err: any) {
+      set({
+        error: err.message || 'Failed to send password reset email.',
+        isLoading: false,
+      });
+      return false;
+    }
+  },
+
   googleLogin: async (payload) => {
     set({ isLoading: true, error: null });
     try {
+      if (isSupabaseConfigured()) {
+        const { url, error } = await supabaseAuth.signInWithGoogle();
+        if (error) throw error;
+        if (url && typeof window !== 'undefined') {
+          window.location.href = url;
+          return true;
+        }
+      }
+
       const data = await apiClient.googleLogin(payload);
       set({
         user: data.user,
@@ -168,13 +265,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: () => {
+    if (isSupabaseConfigured()) {
+      supabaseAuth.signOut().catch(console.error);
+    }
     apiClient.setToken(null);
     set({ user: null, isAuthenticated: false });
-    useLibraryStore.getState().syncUserData().catch(console.error);
+    useLibraryStore.getState().resetToGuestLibrary().catch(console.error);
   },
 
   checkAuth: async () => {
     try {
+      if (isSupabaseConfigured()) {
+        const session = await supabaseAuth.getSession();
+        if (session?.user) {
+          apiClient.setToken(session.access_token);
+          const formattedUser: UserProfile = {
+            id: session.user.id,
+            name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'AURA Listener',
+            email: session.user.email || '',
+            avatarUrl: session.user.user_metadata?.avatar_url,
+          };
+          set({ user: formattedUser, isAuthenticated: true });
+          useLibraryStore.getState().syncUserData().catch(console.error);
+          useAudioStore.getState().restorePlaybackFromDB().catch(console.error);
+          return;
+        }
+      }
+
       const user = await apiClient.getMe();
       if (user) {
         set({ user, isAuthenticated: true });
@@ -204,3 +321,4 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 }));
+

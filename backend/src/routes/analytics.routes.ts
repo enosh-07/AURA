@@ -34,6 +34,17 @@ router.post('/skip', requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
+/** GET /api/v1/analytics/recent — genuine recently played tracks */
+router.get('/recent', requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
+    const data = await analyticsService.getRecentlyPlayed(req.user!.id, limit);
+    res.json({ success: true, data });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: { message: e.message } });
+  }
+});
+
 /** GET /api/v1/analytics/insights — user listening insights */
 router.get('/insights', requireAuth, async (req: AuthRequest, res: Response) => {
   try {

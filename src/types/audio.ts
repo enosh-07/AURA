@@ -1,8 +1,25 @@
 export type RepeatMode = 'off' | 'all' | 'one';
 
+export type PlayerPresentationMode = 'full' | 'mini';
+export type FullPlayerTab = 'artwork' | 'live-lyrics';
+
+export type LyricsLoadingStatus = 'idle' | 'loading' | 'loaded' | 'error' | 'not_found' | 'instrumental';
+export type LyricsSource = 'embedded' | 'database' | 'lrclib' | 'none';
+
 export interface LyricsLine {
   time: number; // in seconds
   text: string;
+}
+
+export interface LyricsState {
+  trackId: string | null;
+  status: LyricsLoadingStatus;
+  source: LyricsSource;
+  hasSync: boolean;
+  isInstrumental: boolean;
+  lines: LyricsLine[];
+  plainLyrics?: string;
+  error?: string | null;
 }
 
 export type QualityTier = 'STANDARD' | 'HIGH' | 'LOSSLESS' | 'HI_RES_LOSSLESS';
@@ -25,6 +42,67 @@ export interface AudioVariant {
   validationNotes?: string;
   isDefault?: boolean;
   streamUrl: string;
+}
+
+export type VerificationStatus = 'VERIFIED' | 'FALLBACK_LOSSY' | 'MISMATCH' | 'UNVERIFIED';
+export type AtmosStatus = 'VERIFIED_ATMOS' | 'NOT_ATMOS' | 'NO_ATMOS_STREAM' | 'UNSUPPORTED_PLATFORM';
+
+export interface AudioQualityReport {
+  trackId: string;
+  title: string;
+  artist: string;
+  requestedTier: QualityTier | 'AUTO';
+  deliveredTier: QualityTier;
+  provider: {
+    id: string;
+    displayName: string;
+    sourceType: string;
+    authRequirement: string;
+    licensingTerms: string;
+  };
+  source: {
+    codec: string;
+    container: string;
+    bitrate: number | null;
+    sampleRate: number | null;
+    bitDepth: number | null;
+    channels: number;
+    channelLayout: string;
+    isLossless: boolean;
+    isHiRes: boolean;
+    fileSize: number | null;
+    duration: number;
+    provenance: string;
+  };
+  playback: {
+    audioContextSampleRate: number | null;
+    outputSampleRate: number | null;
+    bitPerfectBypass: boolean;
+    dspActive: boolean;
+    osMixerNote: string;
+  };
+  dolbyAtmos: {
+    isDolbyAtmos: boolean;
+    status: AtmosStatus;
+    badgeVisible: boolean;
+    reason: string;
+    spatialRenderingMode: 'DISCRETE_ATMOS' | 'AURA_BINAURAL_SIMULATION' | 'STEREO_PASSTHROUGH';
+  };
+  verification: {
+    status: VerificationStatus;
+    notes: string;
+    losslessAlternativeAvailable?: {
+      trackId: string;
+      title: string;
+      artist: string;
+      album?: string;
+      provider: string;
+      tier: QualityTier;
+      codec: string;
+      sampleRate: number;
+      bitDepth?: number;
+    } | null;
+  };
 }
 
 export interface TrackQualityInfo {
@@ -57,7 +135,9 @@ export interface Track {
   albumId?: string;
   duration: number; // in seconds
   artwork: string;
+  artworkUrl?: string;
   audioUrl: string;
+  streamUrl?: string;
   genre: string;
   year?: number;
   isLocal?: boolean;
@@ -87,6 +167,43 @@ export interface Track {
   validationNotes?: string;
   variants?: AudioVariant[];
   currentVariant?: AudioVariant;
+  audioProfile?: AudioProfile;
+}
+
+export interface AudioProfile {
+  id?: string;
+  trackId: string;
+  bpm: number | null;
+  bpmConfidence: number | null;
+  danceability: number | null;
+  musicalKey: string | null;
+  keyConfidence: number | null;
+  camelotKey: string | null;
+  scale: string | null;
+  integratedLoudness: number | null; // LUFS
+  loudnessRange: number | null;      // LU
+  truePeak: number | null;           // dBFS
+  dynamicRange: number | null;       // dB
+  energy: number | null;
+  valence: number | null;
+  acousticness: number | null;
+  instrumentalness: number | null;
+  speechRatio: number | null;
+  spectralCentroid: number | null;   // Hz
+  spectralRolloff: number | null;    // Hz
+  spectralFlatness: number | null;
+  spectralSpread: number | null;
+  spectralFeatures?: string | null;
+  primaryMood: string | null;
+  secondaryMood: string | null;
+  detectedGenre: string | null;
+  genreConfidence: number | null;
+  fingerprint: string | null;
+  durationMs: number | null;
+  analyzedAt: string | Date;
+  analyzerVersion: string;
+  analysisSource: string;
+  isComplete: boolean;
 }
 
 export interface Playlist {
